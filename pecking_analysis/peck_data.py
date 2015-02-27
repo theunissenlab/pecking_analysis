@@ -20,7 +20,7 @@ def peck_data(blk):
     # Get percentages
     percent_reward = total_reward / total_pecks
     percent_no_reward = total_no_reward / total_pecks
-    print("Rewarded stimuli: %d (%2.1f%%), Unrewarded stimuli: %d (%2.1f%%)", (total_reward, percent_reward, total_no_reward, percent_no_reward))
+    print("Rewarded stimuli: %d (%2.1f%%), Unrewarded stimuli: %d (%2.1f%%)" % (total_reward, 100 * percent_reward, total_no_reward, 100 * percent_no_reward))
 
     # Get interruption information
     if total_no_reward > 0:
@@ -37,7 +37,7 @@ def peck_data(blk):
     percent_interrupt = total_responses / total_pecks
     interrupt_no_reward = interrupt_no_reward / total_no_reward
     interrupt_reward = interrupt_reward / total_reward
-    print("%d interruptions: %2.1f%% rewarded, %2.1f%% unrewarded" % (total_responses, interrupt_reward, interrupt_no_reward))
+    print("%d interruptions: %2.1f%% of rewarded, %2.1f%% of unrewarded" % (total_responses, 100 * interrupt_reward, 100 * interrupt_no_reward))
 
     if (total_reward > 0) and (total_no_reward > 0):
         mu = (interrupt_no_reward - interrupt_reward)
