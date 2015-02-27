@@ -5,15 +5,19 @@ import ipdb
 import numpy as np
 import pandas as pd
 
-from pecking.block import Block
+from pecking_analysis import objects
 
 
-bird_dict = {"BlaBlu1387F": "BlaLbu1387F",
-             "GraGre1401M": "GraGre4401M",
-             "BlaYel0208": "BlaYel0208M",
-             "WhiXXX4100F": "WhiRas4100F"}
+BIRDS = {"BlaBlu1387F": "BlaLbu1387F",
+         "GraGre1401M": "GraGre4401M",
+         "BlaYel0208": "BlaYel0208M",
+         "WhiXXX4100F": "WhiRas4100F"}
 
 class Importer(object):
+
+    def __init__(self):
+
+        self.blocks = list()
 
     def parse(self, files):
 
@@ -21,10 +25,78 @@ class Importer(object):
 
     def get_name(self, bird_name):
 
-        if bird_name in bird_dict:
-            return bird_dict[bird_name]
+        if bird_name in BIRDS:
+            return BIRDS[bird_name]
         else:
             return bird_name
+
+
+class PythonCSV(Importer):
+
+    pattern = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[0-9]{2}){1,2}[MF]?)",
+                        "trialdata",
+                        "(?P<datestr>[0-9]*)\.csv"])
+
+    def __init__(self):
+
+        super(PythonCSV, self).__init__()
+
+    def parse(self, files):
+
+        for file in files:
+
+            fname = os.path.split(file)[1]
+            m = self.parse_filename(fname)
+            if m is not None:
+                blk = objects.Block()
+                blk.name = self.get_name(m["name"])
+                datetime = pd.to_datetime(m["datestr"])
+                blk.date = datetime.date()
+                blk.start = datetime.time()
+                blk.data = self.get_block_data(file)
+                blk.first_peck = blk.data["Time"][0]
+
+                self.blocks.append(blk)
+
+        return self.blocks
+
+    def parse_filename(self, fname):
+
+        m = re.match(self.pattern, fname, re.IGNORECASE)
+        if m is not None:
+            m = m.groupdict()
+            if m["name"] is None:
+                m["name"] = "Unknown"
+            if m["datestr"] is None:
+                m["datestr"] = "Unknown"
+
+            return m
+
+    def get_block_data(self, csv_file):
+
+        labels = ["Session", "Trial", "Time", "Stimulus", "Class",
+                  "Response", "Correct", "RT", "Reward", "Max Wait"]
+
+        def rt_to_timedelta(rt):
+
+            if rt != "nan":
+                hours, minutes, seconds = [float(ss) for ss in rt.split(":")]
+                deltadict = dict(hours=hours,
+                                 minutes=minutes,
+                                 seconds=seconds)
+                return pd.datetools.timedelta(**deltadict)
+            else:
+                return rt
+
+        data = pd.read_csv(csv_file,
+                           header=0,
+                           names=labels,
+                           parse_dates=True,
+                           converters={"RT": rt_to_timedelta,
+                                       "Time": pd.to_datetime})
+
+        return data
+
 
 class MatlabTxt(Importer):
 
@@ -39,34 +111,31 @@ class MatlabTxt(Importer):
 
     def __init__(self):
 
-        self.blocks = list()
+        super(MatlabTxt, self).__init__()
 
     def parse(self, files):
-
+        """ Takes in a list of files and returns a list of Block objects
+        """
         block_groups = self.group_files(files)
 
         for file_grp in block_groups.values():
             files, mdicts = zip(*file_grp)
-            blk = Block()
+            blk = objects.Block()
             blk.name = self.get_name(mdicts[0]["name"])
             date = pd.to_datetime(mdicts[0]["date"], format="%y%m%d").date()
             time = pd.to_datetime(mdicts[0]["time"], format="%H%M%S").time()
             file_types = [m["file"] for m in mdicts]
             if "parameters" in file_types:
                 fname = files[file_types.index("parameters")]
-                blk.start, blk.first_peck, blk.end = self.parse_time_file(fname, date, time)
+                blk.start_time, blk.first_peck, blk.end_time = self.parse_time_file(fname, date, time)
             else:
-                blk.start = pd.Timestamp(pd.datetime.combine(date, time))
-
-            if not blk.is_complete:
-                continue
+                blk.start_time = pd.Timestamp(pd.datetime.combine(date, time))
 
             if "timestamp" in file_types:
                 fname = files[file_types.index("timestamp")]
-                blk.data = self.get_block_data(fname, start=blk.start)
+                blk.data = self.get_block_data(fname, start=blk.start_time)
                 if (blk.data is None) or (len(blk.data) <= 1):
                     continue
-                blk.compute_statistics()
 
             blk.files = files
             self.blocks.append(blk)
@@ -74,6 +143,9 @@ class MatlabTxt(Importer):
         return self.blocks
 
     def parse_time_file(self, fname, date, default):
+        """ Parses the file with "parameters" in its name to extract the session start, stop and first_peck times
+        """
+
         with open(fname, "r") as f:
             contents = f.read()
 
@@ -102,6 +174,8 @@ class MatlabTxt(Importer):
         return start, first_peck, stop
 
     def get_block_data(self, fname, start):
+        """ Gets the block data for file with "timestamp" in its name
+        """
 
         data_labels = ["Timestamp", "Class", "Number"]
         start_value = start.value
@@ -122,6 +196,8 @@ class MatlabTxt(Importer):
         return data
 
     def parse_filename(self, fname):
+        """ Parses fname according to the regular expression MatlabTxt.pattern
+        """
 
         m = re.match(self.pattern, fname, re.IGNORECASE)
         if m is not None:
@@ -144,10 +220,9 @@ class MatlabTxt(Importer):
             return m
 
     def group_files(self, files):
-
-        if isinstance(files, str):
-            files = [files]
-
+        """ Takes in a list of files and groups them according to their bird, date and timestamp
+        Outputs a dictionary where the keys are the grouping and the values are a tuple of (filename, full regex match)
+        """
         block_groups = dict()
         for fname in files:
             if os.path.exists(fname):
