@@ -1,0 +1,37 @@
+Stimulus creation notes:
+
+This module should house the basic steps to create a directory of stimuli
+according to most any specification. The basic steps are:
+1. gather all files from some directory and, optionally, all subdirectories, filter them based on some filename criteria, and put them into a manager.
+2. filter our sounds from sound manager based on some criteria
+3. Preprocess all individual stimuli. Preprocessing steps should be built into a pipeline. I disagree, actually. It'd be nice if any preprocessing step could use information from all stimuli at that current stage.
+4. Optionally combine multiple individual stimuli per trial. Create trials. This would involved randomization rules and maximum-of-a-type rules.
+5. Postprocess each trial's stimuli. Postprocessing steps should be built into a pipeline
+Classes required:
+
+Functions required:
+load_wavs - should take a directory, recursive=False, file_pattern, filter_func
+         file_pattern would be a basic string (e.g. "*.wav")
+         filter_func would be a function called with filename, directory that returns True or False
+
+create_manager - should take a list of filenames (e.g. from load_wavs) and create a manager from them.
+
+switch_manager - should take a manager and a list of ids to add to the new manager
+filter_ids - manager should be able to filter a set of ids based on some criteria (lambda function or simple annotations filtering)
+- The arguemnts should be the filter function and an optional ids argument. If ids is not provided, use all ids in the database.
+
+** Questions
+Where to create new stimuli? For instance, white noise, ml noise, synthetic, etc? Those need to be processed too.
+I think this needs to be implemented before the preprocessing, but after the filtering. Stimuli should be generated in the local database.
+
+How should a local database (e.g. for a specific experiment) relate to a global database that houses all of the metadata? Could we have a read-only flag on the database? Should the database import from others? I guess the main question is how do you make sure the global one doesn't get mucked with by accident. How do you protect it from being polluted?
+On the first question, I think these stimulus creation protocols should always open the global database as read-only. Also, the filtering should create a new database and import each one into that, with a reference to the original database filename / id and the stimulus id therein. I think we should just be careful with the global database and make backups...
+
+
+Filtering:
+Common filters to code:
+- By bird
+- By call type
+- By duration
+- By list number
+- By sentence number

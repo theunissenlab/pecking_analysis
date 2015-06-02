@@ -10,13 +10,20 @@ from neosound.sound import *
 from zeebeez.sound import utils
 
 directory = "/auto/fhome/julie/Documents/FullVocalizationBank"
-wav_files = utils.get_wav_files(directory, recursive=True)
 
 def parse_julie_stim_name(fname):
     pattern = "([a-z0-9]+)_([0-9]{6})[-_]([a-z\-]+)[_-]([0-9a-z]+).wav"
     fname = os.path.split(fname)[-1]
 
     return list(re.match(pattern, fname, re.IGNORECASE).groups())
+
+def get_wavefiles(directory):
+    matches = list()
+    for root, dirnames, filenames in os.walk(directory):
+        for filename in fnmatch.filter(filenames, '*.wav'):
+            matches.append(os.path.join(root, filename))
+
+    return matches
 
 def random_isi_values(number, min_isi, max_isi, sum_isi):
 
@@ -44,6 +51,7 @@ def random_isi_values(number, min_isi, max_isi, sum_isi):
     return isis
 
 sm = SoundManager(HDF5Store, "/tmp/pecking_manager.h5")
+wav_files = get_wavefiles(directory, recursive=True)
 sounds = list()
 for fname in wav_files:
     sound = Sound(fname, manager=sm)
