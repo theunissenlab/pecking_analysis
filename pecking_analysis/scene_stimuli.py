@@ -19,6 +19,7 @@ class TylerBaseProtocol(SoundProtocol):
         output_manager = kwargs.get("output_manager", None)
         if output_manager is None:
             output_manager = SoundManager(DictStore)
+
         super(TylerBaseProtocol, self).__init__(manager,
                                                 filters,
                                                 preprocessors=self.preprocessors,
@@ -26,7 +27,7 @@ class TylerBaseProtocol(SoundProtocol):
                                                 output_manager=output_manager
                                                 )
 
-class CallSequenceProtocol(TylerBaseProtocol):
+class CallOperantSequenceProtocol(TylerBaseProtocol):
 
     def __init__(self, manager,
                  target_type,
@@ -59,9 +60,9 @@ class CallSequenceProtocol(TylerBaseProtocol):
         if additional_filters is not None:
             filters = [MultiFilter(additional_filters + [filt]) for filt in filters]
 
-        super(CallSequenceProtocol, self).__init__(manager,
-                                                   filters,
-                                                   output_manager=output_manager)
+        super(CallOperantSequenceProtocol, self).__init__(manager,
+                                                          filters,
+                                                          output_manager=output_manager)
 
         self.target = target_type
         self.nontargets = nontarget_types
@@ -72,6 +73,7 @@ class CallSequenceProtocol(TylerBaseProtocol):
                        max_isi=1*second,
                        sequence_length=6,
                        sequence_duration=6*second,
+                       annotations=None,
                        ):
         """
         Creates a set of sequence stimuli.
@@ -81,10 +83,14 @@ class CallSequenceProtocol(TylerBaseProtocol):
         :param max_isi: The maximum inter-stimulus interval for the sequence (default 1*second).
         :param sequence_length: The number of call combinations per sequence (default 6).
         :param sequence_duration: The duration of the desired sequence (default 6*second).
+        :param annotations: Additional annotations to add to each output sound.
         """
 
         if num_target is None:
             num_target = int(.2 * num_stimuli)
+
+        if annotations is None:
+            annotations = dict()
 
         self.outputs = list()
         stims_by_type = dict()
@@ -101,19 +107,24 @@ class CallSequenceProtocol(TylerBaseProtocol):
             else:
                 call_type = random.choice(self.nontargets)
 
+            logger.debug("%d) Creating sequence of %s" % (ii, call_type))
             components = np.random.permutation(stims_by_type[call_type])[:sequence_length]
-            self.outputs.append(utils.nonoverlapping_sequence(components,
-                                                              duration=sequence_duration,
-                                                              min_isi=min_isi,
-                                                              max_isi=max_isi))
+            output = utils.nonoverlapping_sequence(components,
+                                                   duration=sequence_duration,
+                                                   min_isi=min_isi,
+                                                   max_isi=max_isi)
+            output.annotate(**annotations)
+            output.annotate(call_type=call_type,
+                            target=(ii in target_inds))
+
+            self.outputs.append(output)
 
 
-
-class SceneSequenceProtocol(CallSequenceProtocol):
+class SceneOperantSequenceProtocol(CallOperantSequenceProtocol):
 
     def __init__(self, *args, **kwargs):
 
-        super(SceneSequenceProtocol, self).__init__(*args, **kwargs)
+        super(SceneOperantSequenceProtocol, self).__init__(*args, **kwargs)
 
     def create_stimuli(self, num_stimuli=100,
                        sequence_length=6,
@@ -124,6 +135,7 @@ class SceneSequenceProtocol(CallSequenceProtocol):
                        ratio=0*dB,
                        min_delay=.1*second,
                        num_per_mix=1,
+                       annotations=None,
                        ):
         """
         Creates a set of sequence stimuli where each individual stimulus is either a combination of target stimuli and background stimuli or just background stimuli
@@ -136,10 +148,14 @@ class SceneSequenceProtocol(CallSequenceProtocol):
         :param ratio: The total signal to background ratio in dB (default 0*dB).
         :param min_delay: The minimum delay between background onset and signal onset (default .1*second).
         :param num_per_mix: The number of background stimuli in a mixture (default 1).
+        :param annotations: Additional annotations to add to each output sound.
         """
 
         if num_mixtures is None:
             num_mixtures = int(.2 * num_stimuli)
+
+        if annotations is None:
+            annotations = dict()
 
         self.outputs = list()
         stims_by_type = dict()
@@ -163,22 +179,33 @@ class SceneSequenceProtocol(CallSequenceProtocol):
 
             components = list()
             for jj in xrange(sequence_length):
+                max_dur = 0*second
+                for kk in xrange(num_per_mix):
+                    max_dur = max(max_dur, backgrounds[jj * num_per_mix + kk].duration)
                 if ii in target_inds:
-                    component = targets[jj].embed(backgrounds[jj * num_per_mix],
+                    max_dur = max(max_dur, targets[jj].duration + min_delay)
+
+                component = backgrounds[jj * num_per_mix].pad(duration=max_dur, start=0*second)
+                for kk in xrange(1, num_per_mix):
+                    max_start = max_dur - backgrounds[jj * num_per_mix + kk].duration
+                    component = backgrounds[jj * num_per_mix + kk].embed(component, max_start=max_start, ratio=0*dB)
+                if ii in target_inds:
+                    max_start = max_dur - targets[jj].duration
+                    component = targets[jj].embed(component,
+                                                  max_start=max_start,
                                                   min_start=min_delay,
                                                   ratio=ratio)
-                else:
-                    component = backgrounds[jj * num_per_mix]
-
-                for kk in xrange(1, num_per_mix):
-                    component = component.embed(backgrounds[jj * num_per_mix + kk],
-                                                ratio=ratio) # maybe want the overall ratio to be 0dB?
                 components.append(component)
 
-            self.outputs.append(utils.nonoverlapping_sequence(components,
-                                                              duration=sequence_duration,
-                                                              min_isi=min_isi,
-                                                              max_isi=max_isi))
+            output = utils.nonoverlapping_sequence(components,
+                                                   duration=sequence_duration,
+                                                   min_isi=min_isi,
+                                                   max_isi=max_isi)
+            output.annotate(**annotations)
+            output.annotate(background_type=background_type,
+                            target=(ii in target_inds))
+
+            self.outputs.append(output)
 
 
 if __name__ == "__main__":

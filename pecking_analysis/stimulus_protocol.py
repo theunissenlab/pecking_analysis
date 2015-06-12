@@ -62,6 +62,7 @@ class SoundProtocol(object):
 
     def switch_manager(self, manager, recursive=True):
 
+        # TODO: It might be best to only transfer those that are used in the create_stimuli method?
         logger.debug("Switching manager from %s to %s" % (self.manager,
                                                           manager))
         self.ids = manager.import_ids(self.manager, self.ids, recursive=recursive)
@@ -108,6 +109,16 @@ class SoundProtocol(object):
 
         logger.debug("Copying inputs to outputs")
         self.outputs = self.inputs[:num_stimuli]
+
+    def write_wavfiles(self, directory):
+
+        if not os.path.exists(directory):
+            os.mkdir(directory)
+
+        for ii, ss in enumerate(self.outputs):
+            filename = os.path.join(directory, "stimulus_%d.wav" % ii)
+            logger.debug("Writing output wavefile to %s" % filename)
+            ss.save(filename)
 
     def write(self):
 
