@@ -108,7 +108,7 @@ class CallOperantSequenceProtocol(TylerBaseProtocol):
                 call_type = random.choice(self.nontargets)
 
             logger.debug("%d) Creating sequence of %s" % (ii, call_type))
-            components = np.random.permutation(stims_by_type[call_type])[:sequence_length]
+            components = [s for s in np.random.permutation(stims_by_type[call_type]) if s.duration <= (sequence_duration / sequence_length)][:sequence_length]
             output = utils.nonoverlapping_sequence(components,
                                                    duration=sequence_duration,
                                                    min_isi=min_isi,
@@ -215,27 +215,28 @@ if __name__ == "__main__":
     init_manager = SoundManager(HDF5Store,
                                 "/auto/tdrive/tlee/julie_stimuli.h5",
                                 read_only=True)
-    output_filename = "/tmp/test_protocol.h5"
+    output_folder = "/auto/tdrive/tlee/operant/simulations"
+    output_filename = os.path.join(output_folder, "isolated_call_sequences.h5")
     if os.path.exists(output_filename):
         os.remove(output_filename)
 
     output_manager = SoundManager(HDF5Store,
                                   output_filename)
     target_type = "distance"
-    background_types = ["whine"]
+    nontarget_types = ["aggressive", "thuck", "begging", "whine", "tet", "tuk", "nest", "distress"]
 
-    p = SceneSequenceProtocol(init_manager,
-                              target_type,
-                              background_types,
-                              output_manager=output_manager,
-                              target_stimuli=30,
-                              nontarget_stimuli=30)
+    p = CallOperantSequenceProtocol(init_manager,
+                                    target_type,
+                                    nontarget_types,
+                                    output_manager=output_manager,
+                                    )
     p.filter()
     p.switch_manager(p.output_manager)
     p.preprocess()
-
-    p.create_stimuli(30, sequence_duration=4*second)
-
+    p.create_stimuli(num_stimuli=300,
+                     num_target=int(300 * 1.0 / (len(nontarget_types) + 1)),
+                     sequence_duration=5*second,
+                     annotations=dict(output=True))
     p.postprocess()
 
 
