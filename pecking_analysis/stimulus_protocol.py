@@ -201,6 +201,31 @@ accepted.
 
         return super(CallTypeFilter, self).apply(manager, ids)
 
+
+class DurationFilter(SoundFilter):
+
+    def __init__(self, min_duration=0, max_duration=None, **kwargs):
+        """
+        Filter a list of ids by sound duration between min_duration and max_duration
+        """
+        super(DurationFilter, self).__init__(**kwargs)
+
+        self.min = min_duration
+        self.max = max_duration
+
+    def apply(self, manager, ids=None):
+
+        if self.max is None:
+            filter_func = lambda dur: dur >= float(self.min)
+        else:
+            filter_func = lambda dur: float(self.min) <= dur <= float(self.max)
+
+        ids = manager.database.filter_by_func(duration=filter_func,
+                                              ids=ids)
+
+        return super(DurationFilter, self).apply(manager, ids)
+
+
 class MultiFilter(SoundFilter):
 
     def __init__(self, filters, **kwargs):

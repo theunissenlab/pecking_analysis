@@ -27,6 +27,17 @@ class TylerBaseProtocol(SoundProtocol):
                                                 output_manager=output_manager
                                                 )
 
+class CallSequenceProtocol(TylerBaseProtocol):
+
+    def __init__(self, manager,
+                 types,
+                 birds,
+                 output_manager=None,
+                 additional_filters=None,
+                 ):
+
+
+
 class CallOperantSequenceProtocol(TylerBaseProtocol):
 
     def __init__(self, manager,
@@ -103,12 +114,12 @@ class CallOperantSequenceProtocol(TylerBaseProtocol):
         for ii in xrange(num_stimuli):
             # Choose a call_type
             if ii in target_inds:
-                call_type = self.target
+                call_type = self.target #"distance
             else:
-                call_type = random.choice(self.nontargets)
+                call_type = random.choice(self.nontargets) #"whine"
 
             logger.debug("%d) Creating sequence of %s" % (ii, call_type))
-            components = [s for s in np.random.permutation(stims_by_type[call_type]) if s.duration <= (sequence_duration / sequence_length)][:sequence_length]
+            components = [s for s in np.random.permutation(stims_by_type[call_type])][:sequence_length]
             output = utils.nonoverlapping_sequence(components,
                                                    duration=sequence_duration,
                                                    min_isi=min_isi,
@@ -229,14 +240,15 @@ if __name__ == "__main__":
                                     target_type,
                                     nontarget_types,
                                     output_manager=output_manager,
+                                    additional_filters=[DurationFilter(max_duration=1)],
                                     )
     p.filter()
     p.switch_manager(p.output_manager)
     p.preprocess()
-    p.create_stimuli(num_stimuli=300,
-                     num_target=int(300 * 1.0 / (len(nontarget_types) + 1)),
+    p.create_stimuli(num_stimuli=200,
+                     num_target=int(200 * 1.0 / (len(nontarget_types) + 1)),
                      sequence_duration=5*second,
                      annotations=dict(output=True))
     p.postprocess()
-
+    #p.write_wavfiles(self, )
 
