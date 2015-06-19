@@ -1,9 +1,20 @@
 import logging
 import numpy as np
-import lasp.sound import spectrogram
+import lasp.sound import spectrogram as compute_spectrogram
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.debug)
+
+spectrogram_cache = dict()
+def convolve_filters(spectrograms, filters):
+
+    activations = list()
+    for sound in sounds:
+        if sound.id in spectrogram_cache:
+            spec = spectrogram_cache[sound.id]
+        else:
+            spec = compute_spectrogram(sound, sound.samplerate, )
+
 
 class FilteringModel(object):
 
@@ -55,9 +66,3 @@ class FilteringModel(object):
                     sound = self.manager.reconstruct(id_)
                     sounds[id_] = spectrogram(sound.asarray(), sound.samplerate, self.spec_samplerate, self.freq_spacing)[2]
                 spec = sounds[id_]
-
-
-
-
-    def test(self):
-
