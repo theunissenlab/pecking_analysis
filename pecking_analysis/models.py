@@ -16,6 +16,8 @@ def convolve_filters(spectrograms, filters):
             spec = compute_spectrogram(sound, sound.samplerate, )
 
 
+
+
 class FilteringModel(object):
 
     def __init__(self, manager,
@@ -32,9 +34,16 @@ class FilteringModel(object):
         self.units_per_category = units_per_category
 
         self.categories = self.get_categories()
-        for ii in xrange(len(self.categories)):
+        # for ii in xrange(len(self.categories)):
+        #
+        # self.filters = self.initialize_filters()
 
-        self.filters = self.initialize_filters()
+    def compute_spectrograms_and_store(self, ids):
+
+        if not isinstance(ids, list):
+            ids = [ids]
+
+
 
     def initialize_filters(self, s):
 
@@ -66,3 +75,9 @@ class FilteringModel(object):
                     sound = self.manager.reconstruct(id_)
                     sounds[id_] = spectrogram(sound.asarray(), sound.samplerate, self.spec_samplerate, self.freq_spacing)[2]
                 spec = sounds[id_]
+
+
+class FilteringDiscriminantModel(FilteringModel):
+
+    def __init__(self, *args, **kwargs):
+
