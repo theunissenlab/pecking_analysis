@@ -1,3 +1,4 @@
+
 from __future__ import division
 import pandas as pd
 import numpy as np
@@ -8,7 +9,7 @@ def peck_data(blk):
     if blk.data is None:
         return
 
-    print("Computing statistics for block %s" % blk)
+    print("Computing statistics for %s" % blk.name)
     # Get peck information
     total_pecks = len(blk.data)
     grouped = blk.data.groupby("Class")
@@ -65,3 +66,18 @@ def peck_data(blk):
                 zscore=zscore,
                 binomial_pvalue=binomial_pvalue,
                 is_significant=is_significant)
+
+if __name__ == "__main__":
+
+    import sys
+    import os
+    from pecking_analysis import objects, importer
+
+    csv_file = os.path.abspath(os.path.expanduser(sys.argv[1]))
+    print("Attempting to parse file %s" % csv_file)
+    if not os.path.exists(csv_file):
+        raise IOError("File %s does not exist!" % csv_file)
+
+    csv_importer = importer.PythonCSV()
+    blocks = csv_importer.parse([csv_file])
+    results=peck_data(blocks[0])
