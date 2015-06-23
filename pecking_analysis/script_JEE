@@ -1,0 +1,5 @@
+from pecking_analysis import objects, peck_data, importer
+csv_file='/home/fet/Dropbox/pecking_test/data/BlaLbl1387F/200315/BlaLbl1387F_trialdata_20150320104604.csv'
+csv_importer = importer.PythonCSV()
+blocks = csv_importer.parse([csv_file])
+results=peck_data.peck_data(blocks[0])
