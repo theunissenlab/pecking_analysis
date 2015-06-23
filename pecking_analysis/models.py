@@ -1,11 +1,12 @@
+import h5py
 import logging
 import numpy as np
+from scipy.io import loadmat
 import lasp.sound import spectrogram as compute_spectrogram
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.debug)
 
-spectrogram_cache = dict()
 def convolve_filters(spectrograms, filters):
 
     activations = list()
@@ -16,52 +17,142 @@ def convolve_filters(spectrograms, filters):
             spec = compute_spectrogram(sound, sound.samplerate, )
 
 
+class BaseModel(object):
+
+    _default_spec_params = dict(spec_sample_rate=1000,
+                                freq_spacing=125,
+                                )
 
 
-class FilteringModel(object):
-
-    def __init__(self, manager,
-                 training_ids,
-                 testing_ids,
-                 units_per_category,
-                 freq_spacing=60,
-                 spec_samplerate=1000,
-                 filter_length=100):
+    def __init__(self, manager, output_file, spec_params=None):
 
         self.manager = manager
-        self.training_ids = training_ids
-        self.testing_ids = testing_ids
-        self.units_per_category = units_per_category
+        self.output_file = output_file
 
-        self.categories = self.get_categories()
-        # for ii in xrange(len(self.categories)):
-        #
-        # self.filters = self.initialize_filters()
+        # Initialize spectrogram parameters
+        self.spec_params = spec_params if spec_params else dict()
+        for key, value in self._default_spec_params:
+            if key not in self.spec_params:
+                self.spec_params[key] = value
 
-    def compute_spectrograms_and_store(self, ids):
+        # Ensure read-only manager
+        self.manager.database.read_only = True
+
+        self.create_output_file()
+
+        self._filter_id = 0
+
+        self.filters = dict()
+        self.spectrograms = dict()
+        self.activations = None
+
+    def create_output_file(self):
+
+        with h5py.File(self.output_file, "a") as hf:
+            hf.attrs["manager"] = self.manager.database.filename
+            hf.create_group("sounds")
+            hf.create_group("filters")
+            g = hf.create_group("spectrogram_parameters")
+            for key, value in self.spec_params:
+                g.attrs[key] = value
+
+    def _get_group(self, hf, group_name):
+
+        if group_name in hf:
+            g = hf[group_name]
+        else:
+            g =  hf.create_group(group_name)
+
+        return g
+
+    def get_category(self, id_):
+
+        annotations = self.manager.database.get_annotations(id_)
+        if "call_type" in annotations:
+            return annotations["call_type"]
+
+    def get_spectrograms(self, ids):
 
         if not isinstance(ids, list):
             ids = [ids]
 
+        spectrograms = list()
+        for id_ in ids:
+            spec = self.load_spectrogram(id)
+            if spec is None:
+                s = self.manager.reconstruct(id_)
+                spec = compute_spectrogram(s, s.samplerate, **spec_params)[2]
+                self.store_spectrogram(id, spec)
+            spectrograms.append(spec)
+
+        return spectrograms
+
+    def load_spectrogram(self, id_):
+
+        id_ = unicode(id_)
+        with h5py.File(self.output_file, "r") as hf:
+            g = hf["sounds"]
+            if id_ in g:
+                return g[id_]["spectrogram"]
+
+        return None
+
+    def store_spectrogram(self, id_, spec):
+
+        id_ = unicode(id_)
+        with h5py.File(self.output_file, "a") as hf:
+            g = hf["sounds"]
+            g = self._get_group(g, id_)
+            if "spectrogram" in g:
+                del g["spectrogram"]
+
+            g.create_dataset("spectrogram", data=spec)
+
+    def store_filter(self, filt, category, id_=None):
+
+        if id_ is None:
+            id_ = self._filter_id
+            self._filter_id += 1
+
+        id_ = unicode(id_)
+        with h5py.File(self.output_file, "a") as hf:
+            g = hf["filters"]
+            g = self._get_group(g, id_)
+            if "filter" in g:
+                del g["filter"]
+
+            g.create_dataset("filter", data=filt)
+            g.attrs["category"] = category
+
+    def load_filter(self, id_):
+
+        id_ = unicode(id_)
+        with h5py.File(self.output_file, "r") as hf:
+            g = hf["filters"]
+            if id_ in g:
+                return (g[id_]["filter"], g[id_].attrs["category"])
 
 
-    def initialize_filters(self, s):
+class FilteringModel(BaseModel):
 
-        filters = list()
-        for ii in xrange(len(self.categories)):
-            cat_filters = list()
-            for jj in xrange(self.units_per_category):
-                cat_filter = np.random.uniform(-0.1, 0.1, (self.nfreqs, self.ntimepts))
+    def __init__(self, manager,
+                 output_file,
+                 spec_params=None,
+                 num_categories=9,
+                 units_per_category=1,
+                 nfreqs=100,
+                 ntimepts=100):
 
-    def get_categories(self):
+        super(FilteringModel, self).__init__(self, manager, output_file, spec_params=spec_params)
+        self.initialize_filters(num_categories, units_per_category, nfreqs, ntimepts)
 
-        categories = list()
-        for id_ in self.training_ids:
-            annotations = self.manager.database.get_annotations(id_)
-            if ("call_type" in annotations) and (annotations["call_type"] not in categories):
-                categories.append(annotations["call_type"])
+    def initialize_filters(self, num_categories, units_per_category, nfreqs, ntimepts):
 
-        return categories
+        for ii in xrange(num_categories):
+            for jj in xrange(units_per_category):
+                cat_filter = np.random.uniform(-0.1, 0.1, (nfreqs, ntimepts))
+                self.filters.setdefault(jj, list()).append(cat_filter)
+                self.store_filter(cat_filter, jj)
 
     def train(self, num_iters=100):
 
@@ -77,7 +168,17 @@ class FilteringModel(object):
                 spec = sounds[id_]
 
 
-class FilteringDiscriminantModel(FilteringModel):
+class FilteringDiscriminantModel(BaseModel):
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self,
+                 manager,
+                 output_file,
+                 discriminant_file):
+
+        super(FilteringDiscriminantModel, self).__init__(manager, output_file)
+        self.initialize_filters(discriminant_file)
+
+    def initialize_filters(self, discriminant_file):
+
+        vars = loadmat(discriminant_file)
 
