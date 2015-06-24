@@ -43,6 +43,7 @@ class PythonCSV(Importer):
 
     def parse(self, files):
 
+        blocks = list()
         for file in files:
 
             fname = os.path.split(file)[1]
@@ -56,9 +57,10 @@ class PythonCSV(Importer):
                 blk.data = self.get_block_data(file)
                 blk.first_peck = blk.data["Time"][0]
 
-                self.blocks.append(blk)
+                blocks.append(blk)
 
-        return self.blocks
+        self.blocks.extend(blocks)
+        return blocks
 
     def parse_filename(self, fname):
 
