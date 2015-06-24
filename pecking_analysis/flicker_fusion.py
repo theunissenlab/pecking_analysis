@@ -38,7 +38,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None):
     grouped = data.groupby("Frequency")
     # c = grouped.count()["Response"].values
     m = grouped.mean()["Response"]
-    freqs = m.index.values
+    freqs = m.index.values.astype(float)
     m = m.values
 
     res = model_logistic(data, log=log)
