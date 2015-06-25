@@ -73,11 +73,14 @@ if __name__ == "__main__":
     import os
     from pecking_analysis import objects, importer
 
-    csv_file = os.path.abspath(os.path.expanduser(sys.argv[1]))
-    print("Attempting to parse file %s" % csv_file)
-    if not os.path.exists(csv_file):
-        raise IOError("File %s does not exist!" % csv_file)
+    csv_files = list()
+    for arg in sys.argv[1:]:
+        filename = os.path.abspath(os.path.expanduser(arg))
+        if not os.path.exists(filename):
+            IOError("File %s does not exist!" % filename)
+        csv_files.append(filename)
 
     csv_importer = importer.PythonCSV()
-    blocks = csv_importer.parse([csv_file])
-    results=peck_data(blocks[0])
+    blocks = csv_importer.parse(csv_files)
+    for blk in blocks:
+        peck_data(blk)

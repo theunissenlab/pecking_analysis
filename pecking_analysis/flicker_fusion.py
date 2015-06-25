@@ -120,15 +120,13 @@ def get_frequency_probability(res, prob, log=True, min_val=0, max_val=1):
     else:
         return (np.log(prob) - np.log(1 - prob) - res.params["Intercept"]) / res.params["Frequency"]
 
-def fit_logistic_model(blk, log=True, niters=100, eta=0.01):
+def fit_logistic_model(blk, log=True, min_val=0, max_val=1, niters=100, eta=0.01):
 
     freqs = blk.data["Stimulus"].apply(get_filename_frequency).values
     if log:
         freqs = np.log10(freqs)
     y = blk.data["Response"].values
     g = blk.data.groupby("Class")
-    b0 = g.get_group("Rewarded")["Response"].mean()
-    b1 = g.get_group("Unrewarded")["Response"].mean() - b0
 
     f0 = np.random.uniform(10, 1000)
     w = np.random.normal()
@@ -141,26 +139,41 @@ def fit_logistic_model(blk, log=True, niters=100, eta=0.01):
 
     def prob(f, w, f0):
 
-        return b0 + b1 * logistic(w * (f - f0))
+        return min_val + (max_val - min_val) * logistic(w * (f - f0))
 
     def likelihood(y, f, w, f0):
         p = prob(f, w, f0)
 
         return np.sum(np.log((y * p) + (1 - y) * (1 - p)))
 
+    def compute_gradients(y, f, w, f0):
+
+        p = prob(freqs, w, f0)
+        l = logistic(w * (freqs - f0))
+        l = l * (1 - l)
+        tmp = (2 * y - 1) / (y * p + (1 - y) * (1 - p))
+        df0 = w * (max_val - min_val) * np.sum(tmp * l)
+        dw = -(max_val - min_val) * np.sum(tmp * l * (freqs - f0))
+
+        return df0, dw
+
+    def empirical_gradients(y, f, w, f0, delta=1e-6):
+
+        il = likelihood(y, f, w, f0)
+
+        dw = (0.5 / delta) * ((likelihood(y, f, w + delta, f0) - il) - (likelihood(y, f, w - delta, f0) - il))
+        df0 = (0.5 / delta) * ((likelihood(y, f, w, f0 + delta) - il) - (likelihood(y, f, w, f0 - delta) - il))
+
+        return df0, dw
+
+
     l0 = likelihood(y, freqs, w, f0)
     print("w=%4.3f, f0=%4.2f, ll=%4.2f" % (w, f0, l0))
     ls = list()
 
     for iter in xrange(niters):
-
-        p = prob(freqs, w, f0)
-        l = logistic(w * (freqs - f0))
-        l = l * (1 - l)
-        tmp = b1 / (y * p + (1 - y) * (1 - p))
-        df0 = np.sum(tmp * l * (-w))
-        dw = np.sum(tmp * l * (freqs - f0))
-
+        # df0, dw = empirical_gradients(y, freqs, w, f0)
+        df0, dw = compute_gradients(y, freqs, w, f0)
         w = w + eta * dw
         f0 = f0 + eta * df0
 
