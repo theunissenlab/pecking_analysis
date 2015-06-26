@@ -120,6 +120,27 @@ def get_frequency_probability(res, prob, log=True, min_val=0, max_val=1):
     else:
         return (np.log(prob) - np.log(1 - prob) - res.params["Intercept"]) / res.params["Frequency"]
 
+class ScaledLogit(sm.Logit):
+
+    def __init__(self, endog, exog=None, min_val=0, max_val=1, **kwargs):
+
+        super(ScaledLogit, self).__init__(endog, exog=exog, **kwargs)
+
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def cdf(self, X):
+
+        X = np.asarray(X)
+        return self.min_val + (self.max_val - self.min_val) * (1 / (1 + np.exp(-X)))
+
+    def pdf(self, X):
+
+        X = np.asarray(X)
+        return (self.max_val - self.min_val) * np.exp(-X) / (1 + np.exp(-X))**2
+
+    def 
+
 def fit_logistic_model(blk, log=True, min_val=0, max_val=1, niters=100, eta=0.01):
 
     freqs = blk.data["Stimulus"].apply(get_filename_frequency).values
