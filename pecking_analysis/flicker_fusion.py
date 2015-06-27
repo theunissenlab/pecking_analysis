@@ -26,14 +26,14 @@ def divide_frequency_range(min_val, max_val, n, log=False, round_values=True):
 def get_response_by_frequency(blocks, log=True, fracs=None):
 
     if fracs is None:
-        fracs = [0.2, 0.5, 0.8]
+        fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
 
     data = pd.DataFrame()
     for ii, blk in enumerate(blocks):
         freq_df = blk.data.copy()
         freq_df["Frequency"] = blk.data["Stimulus"].apply(get_filename_frequency)
         freq_df["Response"] = blk.data["Response"]
-        data = data.append(freq_df[["Frequency", "Response"]])
+        data = data.append(freq_df[["Frequency", "Response", "Class"]])
 
     grouped = data.groupby("Frequency")
     # c = grouped.count()["Response"].values
@@ -47,12 +47,12 @@ def get_response_by_frequency(blocks, log=True, fracs=None):
     else:
         r_ests = res.predict(np.vstack([freqs, np.ones_like(freqs)]).T)
 
-    reward_rate, unreward_rate = get_nonprobe_interruption_rates(blocks)
+    reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
     frac_rates = list()
     for frac in fracs:
         r = get_frequency_probability(res, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
         frac_rates.append(r)
-    print(", ".join(["p = %2.1f) %4.2f (Hz)" % (f, fr) for f, fr in zip(fracs, frac_rates)]))
+    print(", ".join(["p = %0.2f) %4.2f (Hz)" % (f, fr) for f, fr in zip(fracs, frac_rates)]))
 
     fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
     ax = fig.add_subplot(111)
@@ -78,6 +78,35 @@ def get_response_by_frequency(blocks, log=True, fracs=None):
     ax.set_ylabel("Fraction Interruption")
     ax.set_xlabel("Click Frequency (Hz)")
 
+    return res
+
+def estimate_center_frequency(blocks, log=True):
+
+    data = concatenate_data(blocks)
+    data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
+    data = data[["Frequency", "Response", "Class"]]
+
+    grouped = data.groupby("Class")
+    probe_indices = grouped.get_group("Probe").index
+    cfs = list()
+    for ii in probe_indices:
+        if ii < 10:
+            continue
+        fit_data = data.iloc[:ii, :]
+        res = model_logistic(fit_data, log=log)
+        ri, ui = get_nonprobe_interruption_rates(fit_data)
+        cfs.append(get_frequency_probability(res, 0.5, log=log, min_val=ri, max_val=ui))
+
+    return cfs
+
+def concatenate_data(blocks):
+
+    return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
+
+def extract_frequencies(data):
+
+    return data["Stimulus"].apply(get_filename_frequency)
+
 def model_logistic(data, log=True):
 
     if log:
@@ -92,24 +121,13 @@ def model_logistic(data, log=True):
 
     return res
 
-def get_nonprobe_interruption_rates(blocks):
+def get_nonprobe_interruption_rates(data):
 
-    ri = 0
-    rc = 0
-    ui = 0
-    uc = 0
+    g = data.groupby("Class")
+    r = g.get_group("Rewarded")["Response"]
+    u = g.get_group("Unrewarded")["Response"]
 
-    for blk in blocks:
-        g = blk.data.groupby("Class")
-        r = g.get_group("Rewarded")["Response"]
-        u = g.get_group("Unrewarded")["Response"]
-
-        ri += r.sum()
-        rc += r.count()
-        ui += u.sum()
-        uc += u.count()
-
-    return float(ri) / rc, float(ui) / uc
+    return float(r.sum()) / r.count(), float(u.sum()) / u.count()
 
 def get_frequency_probability(res, prob, log=True, min_val=0, max_val=1):
 
@@ -139,15 +157,15 @@ class ScaledLogit(sm.Logit):
         X = np.asarray(X)
         return (self.max_val - self.min_val) * np.exp(-X) / (1 + np.exp(-X))**2
 
-    def 
+    # def
 
-def fit_logistic_model(blk, log=True, min_val=0, max_val=1, niters=100, eta=0.01):
+def fit_logistic_model(data, log=True, min_val=0, max_val=1, niters=100, eta=0.01):
 
-    freqs = blk.data["Stimulus"].apply(get_filename_frequency).values
+    freqs = data["Frequency"].values
     if log:
         freqs = np.log10(freqs)
-    y = blk.data["Response"].values
-    g = blk.data.groupby("Class")
+    y = data["Response"].values
+    g = data.groupby("Class")
 
     f0 = np.random.uniform(10, 1000)
     w = np.random.normal()
@@ -160,21 +178,22 @@ def fit_logistic_model(blk, log=True, min_val=0, max_val=1, niters=100, eta=0.01
 
     def prob(f, w, f0):
 
-        return min_val + (max_val - min_val) * logistic(w * (f - f0))
+        return min_val + (max_val - min_val) * logistic(-w * (f - f0))
 
     def likelihood(y, f, w, f0):
         p = prob(f, w, f0)
 
-        return np.sum(np.log((y * p) + (1 - y) * (1 - p)))
+        return np.sum(y * np.log(p) + (1 - y) * np.log(1 - p))
 
     def compute_gradients(y, f, w, f0):
 
-        p = prob(freqs, w, f0)
-        l = logistic(w * (freqs - f0))
-        l = l * (1 - l)
-        tmp = (2 * y - 1) / (y * p + (1 - y) * (1 - p))
-        df0 = w * (max_val - min_val) * np.sum(tmp * l)
-        dw = -(max_val - min_val) * np.sum(tmp * l * (freqs - f0))
+        p = prob(f, w, f0)
+        l = logistic(w * (f - f0))
+        d = p * (1 - p)
+        tmp = (y - p) / d
+        df0 = -w * (max_val - min_val) * np.sum(tmp * l * (1 - l))
+        # d2f0 = w**2 * (max_val - min_val) * np.sum(l * (1 - l) * ())
+        dw = (max_val - min_val) * np.sum(tmp * l * (1 - l) * (f - f0))
 
         return df0, dw
 
@@ -193,8 +212,8 @@ def fit_logistic_model(blk, log=True, min_val=0, max_val=1, niters=100, eta=0.01
     ls = list()
 
     for iter in xrange(niters):
-        # df0, dw = empirical_gradients(y, freqs, w, f0)
-        df0, dw = compute_gradients(y, freqs, w, f0)
+        df0, dw = empirical_gradients(y, freqs, w, f0)
+        # df0, dw = compute_gradients(y, freqs, w, f0)
         w = w + eta * dw
         f0 = f0 + eta * df0
 
