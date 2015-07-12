@@ -161,7 +161,7 @@ class HDF5Store(object):
                 g.attrs[key] = or_none(val)
 
         blk.data.to_hdf(filename, group_name + "/data")
-        values = pd.read_hdf(filename)
+        values = pd.read_hdf(filename, "/values")
         if str(group_name) not in values["Path"].values:
             df = pd.DataFrame({"Name": blk.name,
                                "Timestamp": pd.Timestamp(pd.datetime.combine(blk.date, blk.start)),
