@@ -204,6 +204,7 @@ class HDF5Store(object):
             if group_name in group:
                 if ii == (len(group_names) - 1):
                     if overwrite:
+			del group[group_name]["data"]
                         del group[group_name]
                     else:
                         IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" % (blk,
