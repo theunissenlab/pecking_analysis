@@ -199,19 +199,31 @@ class HDF5Store(object):
         group = hf
         group_names = [blk.name, blk.date.strftime("%d%m%Y"), blk.start.strftime("%H%M%S")]
         for ii, group_name in enumerate(group_names):
-            try:
-                g = group[group_name]
+            if group_name in group:
                 if ii == (len(group_names) - 1):
                     if overwrite:
-                        del g
-                        KeyError("")
+                        del group[group_name]
                     else:
                         IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" % (blk,
                                                                                                                  hf.filename))
-            except KeyError:
-                group = group.create_group(group_name)
+                else:
+                    group = group[group_name]
             else:
-                group = g
+                group = group.create_group(group_name)
+
+            # try:
+            #     g = group[group_name]
+            #     if ii == (len(group_names) - 1):
+            #         if overwrite:
+            #             del g
+            #             KeyError("")
+            #         else:
+            #             IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" % (blk,
+            #                                                                                                      hf.filename))
+            # except KeyError:
+            #     group = group.create_group(group_name)
+            # else:
+            #     group = g
 
         return group
 
