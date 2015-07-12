@@ -161,12 +161,14 @@ class HDF5Store(object):
                 g.attrs[key] = or_none(val)
 
         blk.data.to_hdf(filename, group_name + "/data")
-        df = pd.DataFrame({"Name": blk.name,
-                           "Timestamp": pd.Timestamp(pd.datetime.combine(blk.date, blk.start)),
-                           "Path": str(group_name)},
-                          index=[0])
-        df = df.set_index("Timestamp")
-        df.to_hdf(filename, "/values", format="table", append=True)
+        values = pd.read_hdf(filename)
+        if str(group_name) not in values["Path"].values:
+            df = pd.DataFrame({"Name": blk.name,
+                               "Timestamp": pd.Timestamp(pd.datetime.combine(blk.date, blk.start)),
+                               "Path": str(group_name)},
+                               index=[0])
+            df = df.set_index("Timestamp")
+            df.to_hdf(filename, "/values", format="table", append=True)
 
         return True
 
@@ -202,13 +204,7 @@ class HDF5Store(object):
             if group_name in group:
                 if ii == (len(group_names) - 1):
                     if overwrite:
-                        values = pd.read_hdf(hf, "/values")
-                        values = values.loc[values["Path"] != group[group_name].name]
-
                         del group[group_name]
-                        del hf["values"]
-                        
-                        values.to_hdf(hf, "/values", format="table", append=True)
                     else:
                         IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" % (blk,
                                                                                                                  hf.filename))
