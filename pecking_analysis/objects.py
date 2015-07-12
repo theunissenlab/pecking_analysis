@@ -208,6 +208,7 @@ class HDF5Store(object):
                                                                                                                  hf.filename))
                 else:
                     group = group[group_name]
+                    continue
             else:
                 group = group.create_group(group_name)
 
