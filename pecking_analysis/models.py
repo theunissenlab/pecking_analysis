@@ -1,20 +1,13 @@
 import h5py
+import os
 import logging
 import numpy as np
 from scipy.io import loadmat
-import lasp.sound import spectrogram as compute_spectrogram
+from lasp.sound import spectrogram as compute_spectrogram
+from lasp.strfs import conv_activations_2d
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.debug)
-
-def convolve_filters(spectrograms, filters):
-
-    activations = list()
-    for sound in sounds:
-        if sound.id in spectrogram_cache:
-            spec = spectrogram_cache[sound.id]
-        else:
-            spec = compute_spectrogram(sound, sound.samplerate, )
+logger.setLevel(logging.DEBUG)
 
 
 class BaseModel(object):
@@ -31,7 +24,7 @@ class BaseModel(object):
 
         # Initialize spectrogram parameters
         self.spec_params = spec_params if spec_params else dict()
-        for key, value in self._default_spec_params:
+        for key, value in self._default_spec_params.iteritems():
             if key not in self.spec_params:
                 self.spec_params[key] = value
 
@@ -43,18 +36,19 @@ class BaseModel(object):
         self._filter_id = 0
 
         self.filters = dict()
+        self.biases = dict()
         self.spectrograms = dict()
-        self.activations = None
 
     def create_output_file(self):
 
-        with h5py.File(self.output_file, "a") as hf:
-            hf.attrs["manager"] = self.manager.database.filename
-            hf.create_group("sounds")
-            hf.create_group("filters")
-            g = hf.create_group("spectrogram_parameters")
-            for key, value in self.spec_params:
-                g.attrs[key] = value
+        if not os.path.exists(self.output_file):
+            with h5py.File(self.output_file, "a") as hf:
+                hf.attrs["manager"] = self.manager.database.filename
+                hf.create_group("sounds")
+                hf.create_group("filters")
+                g = hf.create_group("spectrogram_parameters")
+                for key, value in self.spec_params.iteritems():
+                    g.attrs[key] = value
 
     def _get_group(self, hf, group_name):
 
@@ -65,24 +59,32 @@ class BaseModel(object):
 
         return g
 
-    def get_category(self, id_):
+    def get_category(self, id_, cat_name="call_type"):
 
         annotations = self.manager.database.get_annotations(id_)
-        if "call_type" in annotations:
-            return annotations["call_type"]
+        if cat_name in annotations:
+            return self.categories.index(annotations[cat_name])
 
     def get_spectrograms(self, ids):
 
         if not isinstance(ids, list):
             ids = [ids]
 
+        spec_params = self.spec_params.copy()
+        spec_sample_rate = spec_params.pop("spec_sample_rate")
+        freq_spacing = spec_params.pop("freq_spacing")
+
         spectrograms = list()
         for id_ in ids:
-            spec = self.load_spectrogram(id)
-            if spec is None:
-                s = self.manager.reconstruct(id_)
-                spec = compute_spectrogram(s, s.samplerate, **spec_params)[2]
-                self.store_spectrogram(id, spec)
+            if id_ in self.spectrograms:
+                spec = self.spectrograms[id_]
+            else:
+                spec = self.load_spectrogram(id_)
+                if spec is None:
+                    s = self.manager.reconstruct(id_)
+                    spec = compute_spectrogram(s.asarray(), s.samplerate, spec_sample_rate, freq_spacing, **spec_params)[2]
+                    self.store_spectrogram(id_, spec)
+                self.spectrograms[id_] = spec
             spectrograms.append(spec)
 
         return spectrograms
@@ -108,7 +110,7 @@ class BaseModel(object):
 
             g.create_dataset("spectrogram", data=spec)
 
-    def store_filter(self, filt, category, id_=None):
+    def store_filter(self, filt, category, bias=0, id_=None):
 
         if id_ is None:
             id_ = self._filter_id
@@ -123,6 +125,7 @@ class BaseModel(object):
 
             g.create_dataset("filter", data=filt)
             g.attrs["category"] = category
+            g.attrs["bias"] = bias
 
     def load_filter(self, id_):
 
@@ -131,6 +134,19 @@ class BaseModel(object):
             g = hf["filters"]
             if id_ in g:
                 return (g[id_]["filter"], g[id_].attrs["category"])
+
+    def compute_activations(self, ids):
+
+        activations = dict()
+        spectrograms = self.get_spectrograms(ids)
+        cat_inds = [self.get_category(id_) for id_ in ids]
+        for spec in spectrograms:
+            for ci, filters in self.filters.iteritems():
+                act = conv_activations_2d([spec], filters)
+                activations.setdefault(ci, list()).extend(act)
+
+        return activations, spectrograms, cat_inds
+
 
 
 class FilteringModel(BaseModel):
@@ -170,6 +186,19 @@ class FilteringModel(BaseModel):
 
 class FilteringDiscriminantModel(BaseModel):
 
+    _type_translations = dict(Ag="aggressive",
+                              Be="begging",
+                              DC="distance",
+                              Di="distress",
+                              LT="long tonal",
+                              Ne="nesting",
+                              So="song",
+                              Te="tet",
+                              Th="thuck",
+                              Tu="tuk",
+                              Wh="whine",
+                              )
+
     def __init__(self,
                  manager,
                  output_file,
@@ -177,8 +206,33 @@ class FilteringDiscriminantModel(BaseModel):
 
         super(FilteringDiscriminantModel, self).__init__(manager, output_file)
         self.initialize_filters(discriminant_file)
+        vars = loadmat(discriminant_file, squeeze_me=True, variable_names=["fo", "to", "vocTypes"])
+        self.spec_params["spec_sample_rate"] = 1 / float(vars["to"][1] - vars["to"][0])
+        self.spec_params["freq_spacing"] = int(float(vars["fo"][1] - vars["fo"][0]) * 6.0 / (2 * np.pi)) # This is a hack. It seems to give the right number of values but not exact frequency values...
+        self.spec_params["min_freq"] = min(vars["fo"])
+        self.spec_params["max_freq"] = max(vars["fo"])
+        self.categories = [self._type_translations[str(vt)] for vt in vars["vocTypes"]]
 
     def initialize_filters(self, discriminant_file):
 
-        vars = loadmat(discriminant_file)
+        vars = loadmat(discriminant_file, squeeze_me=True, variable_names=["nf", "nt", "PC_LR", "PC_LR_Bias"])
+        nf, nt = vars["nf"], vars["nt"]
+        for ii in xrange(vars["PC_LR"].shape[1]):
+            cat_filter = np.reshape(vars["PC_LR"][:, ii], (nt, nf)).T
+            self.filters.setdefault(ii, list()).append(cat_filter)
+            self.biases.setdefault(ii, list()).append(vars["PC_LR_Bias"][ii])
+            self.store_filter(cat_filter, ii, bias=vars["PC_LR_Bias"][ii])
 
+
+
+
+
+
+if __name__ == "__main__":
+    from neosound.sound import *
+
+    sm = SoundManager(HDF5Store, "/home/tlee/data/isolated_call_sequences.h5", read_only=True)
+    dcs = sm.database.filter_by_func(call_type=lambda x: x == "distance", output=lambda b: True, num_matches=20)
+    output_file = "/home/tlee/data/test_discriminant_model.h5"
+    discriminant_file = "/home/tlee/Downloads/LogisticForTyler.mat"
+    fdm = FilteringDiscriminantModel(sm, output_file, discriminant_file)

@@ -17,13 +17,15 @@ class Importer(object):
 
     def __init__(self):
 
-        self.blocks = list()
+        pass
 
-    def parse(self, files):
+    @classmethod
+    def parse(cls, files):
 
         pass
 
-    def get_name(self, bird_name):
+    @staticmethod
+    def get_name(bird_name):
 
         if bird_name in BIRDS:
             return BIRDS[bird_name]
@@ -37,34 +39,32 @@ class PythonCSV(Importer):
                         "trialdata",
                         "(?P<datestr>[0-9]*)\.csv"])
 
-    def __init__(self):
-
-        super(PythonCSV, self).__init__()
-
-    def parse(self, files):
+    @classmethod
+    def parse(cls, files):
 
         blocks = list()
         for file in files:
 
             fname = os.path.split(file)[1]
-            m = self.parse_filename(fname)
+            m = cls.parse_filename(fname)
             if m is not None:
-                blk = objects.Block()
-                blk.name = self.get_name(m["name"])
                 datetime = pd.to_datetime(m["datestr"])
-                blk.date = datetime.date()
-                blk.start = datetime.time()
-                blk.data = self.get_block_data(file)
-                blk.first_peck = blk.data["Time"][0]
+                blk = objects.Block(name=cls.get_name(m["name"]),
+                                    date=datetime.date(),
+                                    start=datetime.time(),
+                                    filename=file,
+                                    data=cls.get_block_data(file))
 
                 blocks.append(blk)
+            else:
+                print("Could not parse filename %s. Skipping" % file)
 
-        self.blocks.extend(blocks)
         return blocks
 
-    def parse_filename(self, fname):
+    @classmethod
+    def parse_filename(cls, fname):
 
-        m = re.match(self.pattern, fname, re.IGNORECASE)
+        m = re.match(cls.pattern, fname, re.IGNORECASE)
         if m is not None:
             m = m.groupdict()
             if m["name"] is None:
@@ -74,7 +74,8 @@ class PythonCSV(Importer):
 
             return m
 
-    def get_block_data(self, csv_file):
+    @classmethod
+    def get_block_data(cls, csv_file):
 
         labels = ["Session", "Trial", "Time", "Stimulus", "Class",
                   "Response", "Correct", "RT", "Reward", "Max Wait"]
@@ -94,6 +95,7 @@ class PythonCSV(Importer):
                            header=0,
                            names=labels,
                            parse_dates=True,
+                           index_col="Time",
                            converters={"RT": rt_to_timedelta,
                                        "Time": pd.to_datetime})
 
@@ -242,3 +244,26 @@ class MatlabTxt(Importer):
                 continue
 
         return block_groups
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Parse CSV files and store them in an hdf5 file")
+    parser.add_argument("csv_files",
+                         help="A list of CSV files separated by spaces",
+                         nargs="+")
+    parser.add_argument("output_file",
+                        help="An hdf5 file where block data will be stored",
+                        nargs=1,
+                        type=str)
+    args = parser.parse_args()
+    csv_files = list()
+    for cf in args.csv_files:
+        csv_files.append(os.path.abspath(os.path.expanduser(cf)))
+
+    blocks = PythonCSV.parse(args.csv_files)
+    for blk in blocks:
+        blk.save(os.path.abspath(os.path.expanduser(args.output_file[0])))
+
+

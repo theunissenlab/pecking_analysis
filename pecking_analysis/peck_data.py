@@ -68,19 +68,23 @@ def peck_data(blk):
                 is_significant=is_significant)
 
 if __name__ == "__main__":
-
-    import sys
+    import argparse
     import os
-    from pecking_analysis import objects, importer
+    from pecking_analysis.importer import PythonCSV
 
+    parser = argparse.ArgumentParser(description="Run peck_data on a list of csv files")
+    parser.add_argument("csv_files",
+                        help="A list of CSV files separated by spaces",
+                        nargs="+")
+
+    args = parser.parse_args()
     csv_files = list()
-    for arg in sys.argv[1:]:
-        filename = os.path.abspath(os.path.expanduser(arg))
+    for cf in args.csv_files:
+        filename = os.path.abspath(os.path.expanduser(cf))
         if not os.path.exists(filename):
             IOError("File %s does not exist!" % filename)
         csv_files.append(filename)
 
-    csv_importer = importer.PythonCSV()
-    blocks = csv_importer.parse(csv_files)
+    blocks = PythonCSV.parse(csv_files)
     for blk in blocks:
         peck_data(blk)
