@@ -2,6 +2,8 @@ from __future__ import division, print_function
 import h5py
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
+import palettable
 
 class Block(object):
     '''
@@ -130,8 +132,32 @@ class Block(object):
         else:
             print("Only .h5 files are currently supported")
 
-    def plot(self):
-        pass
+    def plot(self, window_size=20):
+
+        colors = palettable.tableau.ColorBlind_10.mpl_colors
+        fig = plt.figure(facecolor="white")
+        ax = fig.gca()
+        ax2 = ax.twiny()
+        class_names = self.data["Class"].unique().tolist()
+        for ii, cn in enumerate(class_names):
+            pd.rolling_mean(self.data[self.data["Class"] == cn]["Response"], window_size).plot(ax=ax, color=colors[ii])
+
+        for loc in ["right", "top"]:
+            ax.spines[loc].set_visible(False)
+            ax2.spines[loc].set_visible(False)
+
+        ax.xaxis.set_ticks_position("bottom")
+        ax.xaxis.grid(False)
+        ax.yaxis.set_ticks_position("left")
+        ax.yaxis.grid(False)
+        ax.set_ylabel("Fraction Interrupt")
+
+        ax2.xaxis.set_ticks_position("top")
+        ax2.set_xticks(self.data[self.data["Response"] == 1].index)
+        ax2.set_xticklabels([])
+        classes = [class_names.index(cn) for cn in self.data["Class"][self.data["Response"] == 1]]
+        [t.set_color(colors[ii]) for ii, t in zip(classes, ax2.xaxis.get_ticklines())]
+
 
 
 class HDF5Store(object):
@@ -204,11 +230,11 @@ class HDF5Store(object):
             if group_name in group:
                 if ii == (len(group_names) - 1):
                     if overwrite:
-			del group[group_name]["data"]
+                        del group[group_name]["data"]
                         del group[group_name]
                     else:
-                        IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" % (blk,
-                                                                                                                 hf.filename))
+                        raise IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" %
+                                      (blk, hf.filename))
                 else:
                     group = group[group_name]
                     continue
@@ -217,10 +243,12 @@ class HDF5Store(object):
 
         return group
 
-def get_blocks(filename, start_date=None, end_date=None, birds=None):
+
+def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
     """
     Get all blocks from the hdf5 file filename that match certain criteria
     :param filename: An hdf5 file
+    :param date: A specific date (format: "yyyy-mm-dd"). Overrides start_date and end_date.
     :param start_date: Beginning date (format: "yyyy-mm-dd")
     :param end_date: End date (format: "yyyy-mm-dd")
     :param birds: a list of bird names to select
@@ -228,17 +256,21 @@ def get_blocks(filename, start_date=None, end_date=None, birds=None):
     """
 
     df = pd.read_hdf(filename, "/values")
-    if start_date is not None:
-        df = df.ix[start_date:]
-    if end_date is not None:
-        df = df.ix[:end_date]
+    if date is not None:
+        df = df.ix[date]
+    else:
+        if start_date is not None:
+            df = df.ix[start_date:]
+        if end_date is not None:
+            df = df.ix[:end_date]
+
     if birds is not None:
         if isinstance(birds, list):
             df = df[df["Name"].isin(birds)]
         else:
             df = df[df["Name"] == birds]
 
-    df = df.sort("Name")
+    df = df.sort_index().sort("Name")
     paths = df["Path"].values
 
     return [Block.load(filename, path) for path in paths]
