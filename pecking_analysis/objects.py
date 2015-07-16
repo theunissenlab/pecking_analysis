@@ -132,32 +132,36 @@ class Block(object):
         else:
             print("Only .h5 files are currently supported")
 
-    def plot(self, window_size=20):
+    def plot(self, window_size=20, filename=None):
 
         colors = palettable.tableau.ColorBlind_10.mpl_colors
-        fig = plt.figure(facecolor="white")
+        fig = plt.figure(facecolor="white", edgecolor="white")
         ax = fig.gca()
-        ax2 = ax.twiny()
         class_names = self.data["Class"].unique().tolist()
         for ii, cn in enumerate(class_names):
-            pd.rolling_mean(self.data[self.data["Class"] == cn]["Response"], window_size).plot(ax=ax, color=colors[ii])
+            pd.rolling_mean(self.data[self.data["Class"] == cn]["Response"], window_size).plot(ax=ax,
+                                                                                               color=colors[ii],
+                                                                                               linewidth=2,
+                                                                                               label=cn)
+        inds = self.data[self.data["Response"] == 1].index
+        c = [colors[class_names.index(cn)] for cn in self.data.loc[inds]["Class"].values]
+        ax.scatter(inds, np.ones((len(inds),)), s=100, c=c, marker="|", edgecolor="face")
+        ax.set_ylim((0, 1))
 
         for loc in ["right", "top"]:
             ax.spines[loc].set_visible(False)
-            ax2.spines[loc].set_visible(False)
 
         ax.xaxis.set_ticks_position("bottom")
         ax.xaxis.grid(False)
         ax.yaxis.set_ticks_position("left")
         ax.yaxis.grid(False)
         ax.set_ylabel("Fraction Interrupt")
+        ax.set_title("%s - %s" % (self.name, self.date.strftime("%a, %B %d %Y")))
 
-        ax2.xaxis.set_ticks_position("top")
-        ax2.set_xticks(self.data[self.data["Response"] == 1].index)
-        ax2.set_xticklabels([])
-        classes = [class_names.index(cn) for cn in self.data["Class"][self.data["Response"] == 1]]
-        [t.set_color(colors[ii]) for ii, t in zip(classes, ax2.xaxis.get_ticklines())]
+        plt.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False)
 
+        if filename is not None:
+            fig.savefig(filename, dpi=450, facecolor="white", edgecolor="white")
 
 
 class HDF5Store(object):
