@@ -3,6 +3,7 @@ import h5py
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
 import palettable
 
 class Block(object):
@@ -137,19 +138,36 @@ class Block(object):
         colors = palettable.tableau.ColorBlind_10.mpl_colors
         fig = plt.figure(facecolor="white", edgecolor="white")
         ax = fig.gca()
+        # ax2 = ax.twinx()
         class_names = self.data["Class"].unique().tolist()
+        # convert_rt = lambda x: x.total_seconds() if x != "nan" else np.nan
+        grouped = self.data.groupby("Class")
         for ii, cn in enumerate(class_names):
-            pd.rolling_mean(self.data[self.data["Class"] == cn]["Response"], window_size).plot(ax=ax,
-                                                                                               color=colors[ii],
-                                                                                               linewidth=2,
-                                                                                               label=cn)
-        inds = self.data[self.data["Response"] == 1].index
-        c = [colors[class_names.index(cn)] for cn in self.data.loc[inds]["Class"].values]
+            g = grouped.get_group(cn)
+            pd.rolling_mean(g["Response"],
+                            window_size,
+                            center=True).plot(ax=ax,
+                                              color=colors[ii],
+                                              linewidth=2,
+                                              label=cn)
+            # pd.rolling_mean(g[g["Response"] == 1]["RT"].apply(convert_rt),
+            #                 window_size, center=True).plot(ax=ax2,
+            #                                                color=colors[ii],
+            #                                                linewidth=2,
+            #                                                linestyle="--",
+            #                                                label="%s RT" % cn)
+
+        # inds = self.data[self.data["Response"] == 1].index
+        # c = [colors[class_names.index(cn)] for cn in self.data.loc[inds]["Class"].values]
+        inds = self.data.index
+        c = [colors[class_names.index(cn)] for cn in self.data["Class"].values]
         ax.scatter(inds, np.ones((len(inds),)), s=100, c=c, marker="|", edgecolor="face")
         ax.set_ylim((0, 1))
 
         for loc in ["right", "top"]:
             ax.spines[loc].set_visible(False)
+        # for loc in ["left", "top"]:
+        #     ax2.spines[loc].set_visible(False)
 
         ax.xaxis.set_ticks_position("bottom")
         ax.xaxis.grid(False)
@@ -158,7 +176,11 @@ class Block(object):
         ax.set_ylabel("Fraction Interrupt")
         ax.set_title("%s - %s" % (self.name, self.date.strftime("%a, %B %d %Y")))
 
-        plt.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False)
+        # ax2.yaxis.grid(False)
+        # ax2.set_ylabel("Reaction Time (s)")
+
+        ax.legend(loc="upper right", bbox_to_anchor=(0.0, 1.0), frameon=False)
+        # ax2.legend(loc="upper left", bbox_to_anchor=(1.0, 1.0), frameon=False)
 
         if filename is not None:
             fig.savefig(filename, dpi=450, facecolor="white", edgecolor="white")
