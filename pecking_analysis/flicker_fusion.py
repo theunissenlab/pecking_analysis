@@ -127,6 +127,34 @@ def estimate_center_frequency(blocks, log=True, scaled=True, plot=True, filename
 
     return cfs
 
+def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, nsamples=100):
+
+    data = concatenate_data(blocks)
+    data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
+    data = data[["Frequency", "Response", "Class"]]
+
+    ### Change below here
+    cfs = list()
+    models = list()
+    for bootstrap in nbootstraps:
+
+        fit_data = sample_evenly(data, nsamples=nsamples)
+        res = compute_model(fit_data)
+        cf = get_center_frequency(res)
+
+        models.append(res)
+        cfs.append(cf)
+
+    return cfs, models
+
+def sample_evenly(df, nsamples=100, groupby="Class"):
+
+    grouped = df.groupby(groupby)
+    samples_per = int(nsamples / len(grouped))
+    output = pd.concat([g.sample(samples_per) for name, g in grouped])
+
+    return output
+
 def concatenate_data(blocks):
 
     return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
