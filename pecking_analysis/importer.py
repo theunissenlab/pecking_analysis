@@ -1,12 +1,9 @@
+#!/usr/bin/env python
 import os
 import re
-#import ipdb
-
 import numpy as np
 import pandas as pd
-
 from pecking_analysis import objects
-
 
 BIRDS = {"BlaBlu1387F": "BlaLbu1387F",
          "GraGre1401M": "GraGre4401M",

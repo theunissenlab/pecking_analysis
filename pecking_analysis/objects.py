@@ -4,7 +4,6 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import palettable
 
 class Block(object):
     '''
@@ -135,7 +134,12 @@ class Block(object):
 
     def plot(self, window_size=20, filename=None):
 
-        colors = palettable.tableau.ColorBlind_10.mpl_colors
+        try:
+            import palettable
+            colors = palettable.tableau.ColorBlind_10.mpl_colors
+        except ImportError:
+            colors = plt.get_cmap("viridis")
+
         fig = plt.figure(facecolor="white", edgecolor="white")
         ax = fig.gca()
         # ax2 = ax.twinx()
