@@ -70,8 +70,13 @@ def peck_data_old(blk, group1="Rewarded", group2="Unrewarded"):
 
 
 def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
-
-    ORDER = ["Trials", "Feeds", "P-Value"]
+    """
+    Computes some basic statistics for each block and compares groups 1 and 2 with a binomial test.
+    :param blocks: a list of Block objects
+    :param group1: First group to compare
+    :param group2: Second group to compare
+    :return: A pandas dataframe
+    """
 
     if isinstance(blocks, Block):
         blocks = [blocks]
@@ -79,48 +84,57 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
     output = pd.DataFrame()
     for blk in blocks:
 
-        if blk.data is None:
+        if (blk.data is None) or (len(blk.data) == 0):
             continue
 
         data = blk.data.copy()
         results = dict()
-        results["Bird"] = blk.name
-        results["Date"] = str(blk.date)
-        results["Time"] = str(blk.start)
 
         # Get peck information
         total_pecks = len(blk.data)
-        results["Trials"] = total_pecks
+        results[("Total", "Trials")] = total_pecks
 
-        grouped = blk.data.groupby("Class")
-        total_group1 = grouped.size()[group1]
-        results[group1[:2]] = total_group1
-        total_group2 = grouped.size()[group2]
-        results[group2[:2]] = total_group2
+        group1_data = blk.data[blk.data["Class"] == group1]
+        total_group1 = len(group1_data)
+        results[("Total", group1)] = total_group1
+
+        group2_data = blk.data[blk.data["Class"] == group2]
+        total_group2 = len(group2_data)
+        results[("Total", group2)] = total_group2
+
+        if (total_group1 == 0) or (total_group2 == 0):
+            continue
+
         total_feeds = blk.data["Reward"].sum()
-        results["Feeds"] = total_feeds
+        results[("Total", "Feeds")] = total_feeds
 
         # Get percentages
         percent_group1 = total_group1 / total_pecks
+        results[("Percent", group1)] = percent_group1
         percent_group2 = total_group2 / total_pecks
+        results[("Percent", group2)] = percent_group2
 
         # Get interruption information
-        if total_group2 > 0:
-            interrupt_group2 = grouped["Response"].sum()[group2]
-        else:
-            interrupt_group2 = 0
-
         if total_group1 > 0:
-            interrupt_group1 = grouped["Response"].sum()[group1]
+            interrupt_group1 = group1_data["Response"].sum()
         else:
             interrupt_group1 = 0
 
+        if total_group2 > 0:
+            interrupt_group2 = group2_data["Response"].sum()
+        else:
+            interrupt_group2 = 0
+
+
         total_responses = interrupt_group1 + interrupt_group2
         percent_interrupt = total_responses / total_pecks
+        results[("Interrupt", "Total")] = percent_interrupt
+
         interrupt_group1 = interrupt_group1 / total_group1
-        results["Intrpt %s" % group1[:2]] = interrupt_group1
+        results[("Interrupt", group1)] = interrupt_group1
+
         interrupt_group2 = interrupt_group2 / total_group2
-        results["Intrpt %s" % group2[:2]] = interrupt_group2
+        results[("Interrupt", group2)] = interrupt_group2
 
         if (total_group1 > 0) and (total_group2 > 0):
             mu = (interrupt_group2 - interrupt_group1)
@@ -133,13 +147,19 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
             binomial_pvalue = 1.0
             is_significant = False
 
-        results["P-Value"] = binomial_pvalue
-        results = pd.DataFrame(results, index=[0]).set_index(["Bird", "Date", "Time"])
+        results[("Stats", "Z-Score")] = zscore
+        results[("Stats", "P-Value")] = binomial_pvalue
+        results = pd.DataFrame(results, index=[0])
+
+        results["Bird"] = blk.name
+        results["Date"] = str(blk.date)
+        results["Time"] = str(blk.start)
+        results = results.set_index(["Bird", "Date", "Time"])
+
         output = pd.concat([results, output])
 
-    output = output[ORDER + [ss for ss in output.keys() if ss not in ORDER]]
-
-    print(output)
+    output = output.sort_index()
+    print(output.to_string(float_format=lambda x: str(round(x, 3))))
 
     return output
 
