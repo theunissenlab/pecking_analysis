@@ -329,7 +329,7 @@ if __name__ == "__main__":
     parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
     parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
     parser.add_argument("--overwrite", help="Overwrite block in h5 file if it already exists", action="store_true")
-    parser.set_default(func=export_csvs)
+    parser.set_defaults(func=export_csvs)
 
     if len(sys.argv) == 1:
         parser.print_usage()

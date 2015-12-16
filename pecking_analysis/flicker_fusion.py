@@ -353,7 +353,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute probe frequencies")
     parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
     parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
-    parser.set_default(func=probes)
+    parser.set_defaults(func=probes)
 
     if len(sys.argv) == 1:
         parser.print_usage()
