@@ -305,6 +305,35 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
 
     return [Block.load(filename, path) for path in paths]
 
+def export_csvs(args):
+    from pecking_analysis.utils import get_csv, convert_date
+    from pecking_analysis.importer import PythonCSV
 
+    if (args.date is None) and (args.bird is None):
+        args.date = "today"
 
+    date = convert_date(args.date)
+    csv_files = get_csv(data_dir, date=date, bird=args.bird)
 
+    blocks = PythonCSV.parse(csv_files)
+    for blk in blocks:
+        blk.save(args.filename, args.overwrite)
+
+if __name__ == "__main__":
+    import sys
+    import argparse
+
+    h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
+    parser = argparse.ArgumentParser(description="Export CSV files to h5 file")
+    parser.add_argument("-d", "--date", dest="date", help="Date in the format of DD-MM-YY (e.g. 14-12-15) or one of \"today\" or \"yesterday\"")
+    parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    parser.add_argument("--overwrite", help="Overwrite block in h5 file if it already exists", action="store_true")
+    parser.set_default(func=export_csvs)
+
+    if len(sys.argv) == 1:
+        parser.print_usage()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    args.func(args)

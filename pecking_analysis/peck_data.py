@@ -159,7 +159,7 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
         output = pd.concat([results, output])
 
     output = output.sort_index()
-    print(output.to_string(float_format=lambda x: str(round(x, 3))))
+    print(output.to_string(float_format=lambda x: str(round(x, 3)), justify="left"))
 
     return output
 
