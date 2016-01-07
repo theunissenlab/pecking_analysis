@@ -342,8 +342,8 @@ def probes(args):
 
     args.filename = os.path.abspath(os.path.expanduser(args.filename))
     blocks = get_blocks(args.filename, birds=args.bird)
-    blocks = filter_blocks(blocks)
     blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+    blocks = filter_blocks(blocks)
 
     get_response_by_frequency(blocks)
 
@@ -354,8 +354,8 @@ def run_variance_calc(args):
 
     args.filename = os.path.abspath(os.path.expanduser(args.filename))
     blocks = get_blocks(args.filename, birds=args.bird)
-    blocks = filter_blocks(blocks)
     blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+    blocks = filter_blocks(blocks)
 
     if len(blocks) == 0:
         print("No blocks found for %s with probe trials" % str(args.bird))
