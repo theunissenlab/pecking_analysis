@@ -334,20 +334,32 @@ def filter_blocks(blocks):
 
     return blocks
 
+def probes(args):
+    from pecking_analysis.utils import convert_date, get_csv
+    from pecking_analysis.importer import PythonCSV
+    from pecking_analysis.objects import get_blocks
+
+    blocks = get_blocks(args.filename, birds=args.bird)
+    blocks = filter_blocks(blocks)
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+
+    get_response_by_frequency(blocks)
 
 if __name__ == "__main__":
-
-    import sys
     import os
-    from pecking_analysis import importer
+    import sys
+    import argparse
 
-    csv_files = list()
-    for arg in sys.argv[1:]:
-        filename = os.path.abspath(os.path.expanduser(arg))
-        if not os.path.exists(filename):
-            IOError("File %s does not exist!" % filename)
-        csv_files.append(filename)
+    h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
 
-    csv_importer = importer.PythonCSV()
-    blocks = csv_importer.parse(csv_files)
-    get_response_by_frequency(blocks)
+    parser = argparse.ArgumentParser(description="Compute probe frequencies")
+    parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    parser.set_defaults(func=probes)
+
+    if len(sys.argv) == 1:
+        parser.print_usage()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    args.func(args)
