@@ -88,7 +88,9 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
     return models
 
 def estimate_center_frequency(blocks, log=True, scaled=True, plot=True, filename="", nbootstraps=5):
-
+    """
+    Estimate the center frequency at each probe trial in blocks.
+    """
     data = concatenate_data(blocks)
     data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
     data = data[["Frequency", "Response", "Class"]]
@@ -349,4 +351,3 @@ if __name__ == "__main__":
     csv_importer = importer.PythonCSV()
     blocks = csv_importer.parse(csv_files)
     get_response_by_frequency(blocks)
-

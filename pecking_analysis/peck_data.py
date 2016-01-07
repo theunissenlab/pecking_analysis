@@ -76,6 +76,7 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
     :param group1: First group to compare
     :param group2: Second group to compare
     :return: A pandas dataframe
+    TODO: Add pecks and feeds in case where both groups were not seen
     """
 
     if isinstance(blocks, Block):

@@ -286,6 +286,24 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
     """
 
     df = pd.read_hdf(filename, "/values")
+    df = filter_block_metadata(df, date=date, start_date=start_date,
+                               end_date=end_date, birds=birds)
+    df = df.sort_index().sort("Name")
+    paths = df["Path"].values
+
+    return [Block.load(filename, path) for path in paths]
+
+def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=None):
+    """
+    Get all blocks from a loaded dataframe that match certain criteria
+    :param df: Dataframe read from a HDF5Store.
+    :param date: A specific date (format: "yyyy-mm-dd"). Overrides start_date and end_date.
+    :param start_date: Beginning date (format: "yyyy-mm-dd")
+    :param end_date: End date (format: "yyyy-mm-dd")
+    :param birds: a list of bird names to select
+    :return: a filtered Dataframe
+    """
+
     if date is not None:
         df = df.ix[date]
     else:
@@ -300,11 +318,20 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
         else:
             df = df[df["Name"] == birds]
 
-    df = df.sort_index().sort("Name")
-    paths = df["Path"].values
+    return df
 
-    return [Block.load(filename, path) for path in paths]
+def summarize_file(filename, date=None, start_date=None, end_date=None, birds=None):
+    """
+    Summarize the data stored in the filename that match certain criteria
+    :param filename: An hdf5 file
+    :param date: A specific date (format: "yyyy-mm-dd"). Overrides start_date and end_date.
+    :param start_date: Beginning date (format: "yyyy-mm-dd")
+    :param end_date: End date (format: "yyyy-mm-dd")
+    :param birds: a list of bird names to select
+    """
 
-
-
-
+    df = pd.read_hdf(filename, "/values")
+    df = filter_block_metadata(df, date=date, start_date=start_date,
+                               end_date=end_date, birds=birds)
+    df = df.rename(columns={"Path": "File count"})
+    print(df.groupby("Name").count())
