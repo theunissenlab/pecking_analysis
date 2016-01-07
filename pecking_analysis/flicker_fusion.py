@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os
 import copy
 import numpy as np
@@ -335,15 +337,41 @@ def filter_blocks(blocks):
     return blocks
 
 def probes(args):
-    from pecking_analysis.utils import convert_date, get_csv
-    from pecking_analysis.importer import PythonCSV
+    import os
     from pecking_analysis.objects import get_blocks
 
+    args.filename = os.path.abspath(os.path.expanduser(args.filename))
     blocks = get_blocks(args.filename, birds=args.bird)
     blocks = filter_blocks(blocks)
     blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
 
     get_response_by_frequency(blocks)
+
+
+def run_variance_calc(args):
+    import os
+    from pecking_analysis.objects import get_blocks
+
+    args.filename = os.path.abspath(os.path.expanduser(args.filename))
+    blocks = get_blocks(args.filename, birds=args.bird)
+    blocks = filter_blocks(blocks)
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+
+    if len(blocks) == 0:
+        print("No blocks found for %s with probe trials" % str(args.bird))
+        return
+
+    cfs = estimate_center_frequency(blocks)
+    df = pd.DataFrame(cfs, columns=["Center Frequency"])
+    df["Var"] = pd.rolling_var(df["Center Frequency"], window=10)
+    df["Mean"] = pd.rolling_mean(df["Center Frequency"], window=10)
+    df["Var Pct"] = 100 * df["Var"] / df["Mean"]
+
+    num_trials = 25
+    print("Displaying last %d probe trials" % num_trials)
+    pd.options.display.max_rows = 2 * num_trials
+    print(df.iloc[-num_trials:])
+
 
 if __name__ == "__main__":
     import os
@@ -353,9 +381,23 @@ if __name__ == "__main__":
     h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
 
     parser = argparse.ArgumentParser(description="Compute probe frequencies")
-    parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
-    parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
-    parser.set_defaults(func=probes)
+    subparsers = parser.add_subparsers(title="methods",
+                                       description="Valid methods",
+                                       help="Which flicker_fusion analysis method to run")
+
+    # Add options for checking probe stimuli
+    probe_parser = subparsers.add_parser("probe",
+                                       description="Check the current estimate for probe stimuli frequencies")
+    probe_parser.add_argument("bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    probe_parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    probe_parser.set_defaults(func=probes)
+
+    # Add options for checking center frequency variance
+    var_parser = subparsers.add_parser("var",
+                                       description="Check the estimate of the center frequency, plus variance as percentage of mean")
+    var_parser.add_argument("bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    var_parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    var_parser.set_defaults(func=run_variance_calc)
 
     if len(sys.argv) == 1:
         parser.print_usage()
