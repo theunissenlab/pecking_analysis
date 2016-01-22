@@ -4,7 +4,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-import palettable
+#import palettable
 
 class Block(object):
     '''
@@ -300,7 +300,3 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
     paths = df["Path"].values
 
     return [Block.load(filename, path) for path in paths]
-
-
-
-
