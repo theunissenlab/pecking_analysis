@@ -9,29 +9,23 @@ import statsmodels.api as sm
 import pandas as pd
 
 def get_filename_frequency(filename):
+    """ Extracts the frequency value of a stimulus from its filename
+    """
 
-    return int(os.path.basename(filename).split("_")[1])
-
-def divide_frequency_range(min_val, max_val, n, log=False, round_values=True):
-
-    if round_values:
-        min_val = round(min_val, -1)
-        max_val = round(max_val, -1)
-    if log:
-        values = 10 ** np.logspace(np.log10(min_val), np.log10(max_val), n)
-    else:
-        values = np.linspace(min_val, max_val, n)
-
-    if round_values:
-        values = [round(val, -1) for val in values]
-
-    return values
+    ss = os.path.basename(filename).split("_")
+    try:
+        return int(ss[1])
+    except:
+        return None
 
 def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton", do_plot=True):
+    """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
+    """
 
     if fracs is None:
         fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
 
+    # Extract and concatenate data
     data = pd.DataFrame()
     bins = np.array([30, 50, 80, 120, 170, 230, 300, 380, 470, 570, 700, 900, 1000])
     bin_freqs = lambda freq: bins[np.nonzero(np.ceil(float(freq) / bins) == 1)[0][0]]
@@ -42,17 +36,20 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
         freq_df["Response"] = blk.data["Response"]
         data = data.append(freq_df[["Frequency", "Response", "Class", "FreqGroup"]])
 
+    # Get raw data for binned frequencies
     grouped = data.groupby("FreqGroup")
     # grouped = data.groupby("Frequency")
     m = grouped.mean()["Response"]
     freqs = m.index.values.astype(float)
     m = m.values
 
+    # Estimate models
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
-    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False) for ii in xrange(nbootstraps)]
+    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False) for ii in range(nbootstraps)]
     est_freqs = np.arange(10, 1000, 10)
     r_ests = model_predict(models, est_freqs, log=log)
 
+    # Compute frequency at different points on the logistic
     frac_rates = list()
     for frac in fracs:
         r = get_frequency_probability(models, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
@@ -88,11 +85,10 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
             print('Saving figure to %s' % filename)
             fig.savefig(filename, facecolor="white", edgecolor="white", dpi=450)
 
-    return models
+    return models, frac_rates
 
 def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filename="", nbootstraps=5):
-    """
-    Estimate the center frequency at each probe trial in blocks.
+    """ Estimate the center frequency at each probe trial in blocks.
     """
     data = concatenate_data(blocks)
     data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
@@ -153,6 +149,13 @@ def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, n
     return cfs, models
 
 def sample_evenly(df, nsamples=100, groupby="Class"):
+    """ Samples evenly nsamples combined points from all groups of groupby
+    :param df: pandas dataframe
+    :param nsamples: total number of samples from all groups
+    :param groupby: column of the dataframe whose groups we want to sample
+
+    returns a pandas dataframe with only the sampled rows
+    """
 
     grouped = df.groupby(groupby)
     samples_per = int(nsamples / len(grouped))
@@ -160,11 +163,32 @@ def sample_evenly(df, nsamples=100, groupby="Class"):
 
     return output
 
+def sample_mean_probe_count(df):
+    """ Samples each frequency of rewarded and unrewarded stimuli the average number of times that each probe frequency was played.
+    """
+
+    grouped = df.groupby("Class")
+    udf = grouped.get_group("Unrewarded")
+    rdf = grouped.get_group("Rewarded")
+    pdf = grouped.get_group("Probe")
+    mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
+
+    udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
+                    udf.groupby("Frequency").groups.values()])
+    rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
+                    rdf.groupby("Frequency").groups.values()])
+
+    return pd.concat([udf, rdf, pdf]).sort_index()
+
 def concatenate_data(blocks):
+    """ Concatenate the data from a list of blocks
+    """
 
     return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
 
 def extract_frequencies(data):
+    """ Get frequency values from a pandas dataframe with a Stimulus column
+    """
 
     return data["Stimulus"].apply(get_filename_frequency)
 
@@ -195,7 +219,9 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
     return result
 
-def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, method="bfgs", disp=True):
+def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, even_sampling=True, method="bfgs", disp=True):
+    """ Compute a logistic or scaled logistic model on the data
+    """
 
     data = data.copy()
     if log:
@@ -205,18 +231,12 @@ def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, method=
         freq_name = "Frequency"
     data["Intercept"] = 1.0
 
+    # Sample the non-probe stimuli so that they don't get too much emphasis
     if restrict_nonprobe:
-        grouped = data.groupby("Class")
-        udf = grouped.get_group("Unrewarded")
-        rdf = grouped.get_group("Rewarded")
-        pdf = grouped.get_group("Probe")
-        mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
-
-        udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
-                         udf.groupby("Frequency").groups.values()])
-        rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
-                         rdf.groupby("Frequency").groups.values()])
-        data = pd.concat([udf, rdf, pdf]).sort_index()
+        if even_sampling:
+            data = sample_evenly(data, len(data[data["Class"] == "Probe"]) * 3)
+        else:
+            data = sample_mean_probe_count(data)
 
     min_val, max_val = get_nonprobe_interruption_rates(data)
 
@@ -228,6 +248,8 @@ def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, method=
     return logit.fit(method=method, disp=disp)
 
 def get_nonprobe_interruption_rates(data):
+    """ Computes the rewarded class and unrewarded class interruption rates
+    """
 
     g = data.groupby("Class")
     r = g.get_group("Rewarded")["Response"]
@@ -236,6 +258,11 @@ def get_nonprobe_interruption_rates(data):
     return float(r.sum()) / r.count(), float(u.sum()) / u.count()
 
 def model_predict(models, frequencies, log=True):
+    """ Predicts the probability of interruption of a list of frequencies using the model
+    :param models: a list of models
+    :param frequencies: a list of frequencies to predict on
+    :param log: predict on log frequencies (default True)
+    """
 
     result = aggregate_models(models, log=log)
 

@@ -7,7 +7,19 @@ import numpy as np
 
 class Block(object):
     '''
-    This class organizes data from a single block of trials.
+    This class organizes data from a single block of trials. It has attributes of:
+    - name: the subject's name
+    - date: the starting date of the block
+    - start: the starting time of the block
+    - data: a pandas dataframe of the block data
+    - annotations: a dictionary of annotations for the block
+    - first_peck: timestamp of the first peck
+    - last_peck: timestamp of the last peck
+
+    It also has useful methods:
+    - save: Save the block (only hdf5 files are currently supported)
+    - load: Load a block from the specified location
+    - plot: Plot a quick representation of the data throughout the block
     '''
 
     first_peck = property(fget=lambda self: self.data.index[0], doc="The timestamp of the first peck")
@@ -17,8 +29,8 @@ class Block(object):
                  name=None,
                  date=None,
                  start=None,
-                 filename=None,
                  data=None,
+                 store=None,
                  **kwargs):
         """
         Creates a Block object that stores data about a single chunk of trials for the pecking test
@@ -27,14 +39,15 @@ class Block(object):
         :param start: A start time of the block - A datetime.time
         :param filename: The CSV filename where the data came from
         :param data: The imported pandas DataFrame
+        :param store: An HDF5Store instance.
         :param kwargs: Any additional keyword arguments will be added as annotations
         """
 
         self.name = name
         self.date = date
-        self.filename = filename
         self.start = start
         self.data = data
+        self._store = store
 
         self.annotations = dict()
         self.annotate(**kwargs)
@@ -43,7 +56,8 @@ class Block(object):
 
         output = ["%s Date: %s" % (self.name, self.date.isoformat())]
         output.append("Time: %s" % (self.start.isoformat()))
-        output.append("Filename: %s" % (self.filename))
+        if "filename" in self.annotations:
+            output.append("Filename: %s" % (self.annotations["filename"]))
 
         g = self.data[["Response", "Class"]].groupby("Class")
         c = g["Response"].count().to_frame().transpose().rename({"Response": "Played"})
@@ -65,6 +79,10 @@ class Block(object):
         """
 
         self.annotations.update(annotations)
+        if self.store is not None:
+            return self.store.annotate_block(self, **self.annotations)
+
+        return True
 
     @classmethod
     def merge(cls, blocks):
@@ -105,40 +123,49 @@ class Block(object):
                    data=data,
                    filenames=filenames)
 
-    def save(self, filename, overwrite=False):
+    def save(self, filename=None, overwrite=False):
         """
-        Store the block in the hdf5 file named filename
+        Save the block. If the store attribute is not set, then you must provide a filename.
         :param filename: hdf5 file
         :param overwrite: Whether or not to overwrite if the data already exists (default False)
         :return: True if saving was successful
         """
 
-        if filename.endswith((".h5", ".hdf5", ".hdf")):
-            return HDF5Store.save_block(filename, self, overwrite=overwrite)
+        if filename is not None:
+            if filename.endswith((".h5", ".hdf5", ".hdf")):
+                self.store = HDF5Store(filename)
+            else:
+                print("Only .h5 files are currently supported")
+
+        if self.store is not None:
+            return self.store.save_block(overwrite=overwrite)
         else:
-            print("Only .h5 files are currently supported")
+            return False
 
     @classmethod
-    def load(cls, filename, path):
+    def load(cls, store, path):
         """
-        Loads a block object from the hdf5 file at the specified path
-        :param filename: the path to the hdf5 file
+        Loads a block object from the specified storage file at the specified path
+        :param store: the store or name of the store file.
         :param path: the path to the group within the hdf5 file where the block is stored
-        :return:
+        :return: a Block instance
         """
 
-        if filename.endswith((".h5", ".hdf5", ".hdf")):
-            return HDF5Store.load_block(filename, path)
-        else:
-            print("Only .h5 files are currently supported")
+        if isinstance(filename, str):
+            if filename.endswith((".h5", ".hdf5", ".hdf")):
+                store = HDF5Store.load_block(filename)
+            else:
+                print("Only .h5 files are currently supported")
+                return
+
+        block = store.load_block(path)
+        block.store = store
+
+        return block
 
     def plot(self, window_size=20, filename=None):
 
-        try:
-            import palettable
-            colors = palettable.tableau.ColorBlind_10.mpl_colors
-        except ImportError:
-            colors = plt.get_cmap("viridis")
+
 
         fig = plt.figure(facecolor="white", edgecolor="white")
         ax = fig.gca()
@@ -146,6 +173,14 @@ class Block(object):
         class_names = self.data["Class"].unique().tolist()
         # convert_rt = lambda x: x.total_seconds() if x != "nan" else np.nan
         grouped = self.data.groupby("Class")
+
+        try:
+            import palettable
+            colors = palettable.tableau.ColorBlind_10.mpl_colors
+        except ImportError:
+            colors = plt.get_cmap("viridis")
+            colors = [colors(ff) for ff in np.linspace(0, 1, len(class_names))]
+
         for ii, cn in enumerate(class_names):
             g = grouped.get_group(cn)
             pd.rolling_mean(g["Response"],
@@ -192,35 +227,69 @@ class Block(object):
 
 class HDF5Store(object):
 
-    @classmethod
-    def save_block(cls, filename, blk, overwrite=True):
+    def __init__(self, filename):
+        """ Implements storing Block object data in an hdf5 file.
+        :param filename: path to an hdf5 file
+        """
 
-        if blk.name is None:
-            ValueError("Cannot save to hdf5 file when block.name is None")
-        if blk.date is None:
-            ValueError("Cannot save to hdf5 file when block.date is None")
-        if blk.start is None:
-            ValueError("Cannot save to hdf5 file when block.start is None")
+        self.filename = filename
 
+        # Ensure the file exists
+        if not os.path.isfile(filename):
+            with h5py.File(filename, "w") as hf:
+                pass
+
+    def annotate_block(self, block, **kwargs):
+        """ Annotate the block with key-value pairs in kwargs
+        :param block: a Block instance
+        :param kwargs: key-value pairs to store as annotations
+        """
+
+        # Store None values as strings
         or_none = lambda val: val if val is not None else "none"
 
-        with h5py.File(filename, mode="a") as hf:
-            # File is structured /bird_name
-            g = cls.create_group_recursive(hf, blk, overwrite)
-            group_name = g.name
+        group_name = self._group_name(block)
+        with h5py.File(filename, "a") as hf:
+            g = hf.get(group_name)
+            if g is not None:
+                for key, val in kwargs.items():
+                    g.attrs[key] = or_none(val)
 
-            g.attrs["name"] = blk.name
-            g.attrs["date"] = blk.date.strftime("%d%m%Y")
-            g.attrs["start"] = blk.start.strftime("%H%M%S")
-            g.attrs["filename"] = or_none(blk.filename)
-            for key, val in blk.annotations.iteritems():
+    def save_block(self, block, overwrite=True):
+        """ Save the block in the hdf5 file
+        :param block: Block instance to save
+        :param overwrite: whether or not to overwrite the existing data if the block has already been stored. (default True)
+        """
+
+        # Store None values as strings
+        or_none = lambda val: val if val is not None else "none"
+
+        # Store all annotations, as well as top-level attributes as attributes on the group for the block
+        with h5py.File(self.filename, mode="a") as hf:
+            # File is structured /bird_name
+            group_name = self._group_name(block)
+            g = self._create_group_recursive(hf, group_name, overwrite)
+
+            g.attrs["name"] = block.name
+            g.attrs["date"] = block.date.strftime("%d%m%Y")
+            g.attrs["start"] = block.start.strftime("%H%M%S")
+            for key, val in block.annotations.iteritems():
                 g.attrs[key] = or_none(val)
 
-        blk.data.to_hdf(filename, group_name + "/data")
-        values = pd.read_hdf(filename, "/values")
-        if str(group_name) not in values["Path"].values:
-            df = pd.DataFrame({"Name": blk.name,
-                               "Timestamp": pd.Timestamp(pd.datetime.combine(blk.date, blk.start)),
+        # Store the data using pandas built-in to_hdf method
+        block.data.to_hdf(filename, group_name + "/data")
+
+        # Records of which data is where in the file are kept in a table called "values" at the root of the file
+        # Load that table if it exists
+        try:
+            values = pd.read_hdf(filename, "/values")
+        except KeyError:
+            values = None
+
+        # Add the table entry if it doesn't yet exist
+        if (values is None) or (str(group_name) not in values["Path"].values):
+            df = pd.DataFrame({"Name": block.name,
+                               "Timestamp": pd.Timestamp(pd.datetime.combine(block.date, block.start)),
                                "Path": str(group_name)},
                                index=[0])
             df = df.set_index("Timestamp")
@@ -228,18 +297,24 @@ class HDF5Store(object):
 
         return True
 
-    @classmethod
-    def load_block(cls, filename, path):
+    def load_block(self, path):
+        """ Load the block at the specified path
+        :param path: hdf5 group path to load
+        """
 
+        # Return "none" strings as None
         or_none = lambda val: val if (not isinstance(val, str) or (val != "none")) else None
+
+        # Load the data
         data = pd.read_hdf(filename, path + "/data")
+
+        # Load the annotations and top-level attributes
         with h5py.File(filename, "r") as hf:
             g = hf.get(path)
             annotations = dict(g.attrs.items())
             name = annotations.pop("name")
             date = pd.datetime.strptime(annotations.pop("date"), "%d%m%Y").date()
             start = pd.datetime.strptime(annotations.pop("start"), "%H%M%S").time()
-            filename = or_none(annotations.pop("filename"))
 
             for key, val in annotations.iteritems():
                 annotations[key] = or_none(val)
@@ -247,15 +322,27 @@ class HDF5Store(object):
         return Block(name=name,
                      date=date,
                      start=start,
-                     filename=filename,
                      data=data,
                      **annotations)
 
+
     @staticmethod
-    def create_group_recursive(hf, blk, overwrite):
+    def _group_name(block):
+
+        if block.name is None:
+            ValueError("Cannot save to hdf5 file when block.name is None")
+        if block.date is None:
+            ValueError("Cannot save to hdf5 file when block.date is None")
+        if block.start is None:
+            ValueError("Cannot save to hdf5 file when block.start is None")
+
+        return "/".join([block.name, block.date.strftime("%d%m%Y"), block.start.strftime("%H%M%S")])
+
+    @staticmethod
+    def _create_group_recursive(hf, group_name, overwrite):
 
         group = hf
-        group_names = [blk.name, blk.date.strftime("%d%m%Y"), blk.start.strftime("%H%M%S")]
+        group_names = group_name.split("/")
         for ii, group_name in enumerate(group_names):
             if group_name in group:
                 if ii == (len(group_names) - 1):
@@ -264,7 +351,7 @@ class HDF5Store(object):
                         del group[group_name]
                     else:
                         raise IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" %
-                                      (blk, hf.filename))
+                                      (block, hf.filename))
                 else:
                     group = group[group_name]
                     continue
@@ -274,7 +361,7 @@ class HDF5Store(object):
         return group
 
 
-def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
+def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None, ):
     """
     Get all blocks from the hdf5 file filename that match certain criteria
     :param filename: An hdf5 file
@@ -293,7 +380,32 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
 
     return [Block.load(filename, path) for path in paths]
 
-def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=None):
+def filter_blocks(blocks, **kwargs):
+    """ Filter the list of blocks using the key-value pairs in kwargs
+    :param blocks: a list of block objects
+    :param kwargs: key-value pairs to be matched with block attributes/annotations
+    """
+    results = list()
+    for blk in blocks:
+        match = True
+        for key, value in kwargs.items():
+            if hasattr(blk, key):
+                if getattr(blk, key) != value:
+                    match = False
+                    break
+            elif key in blk.annotations:
+                if blk.annotations[key] == value:
+                    match = False
+                    break
+            else:
+                match = False
+
+        if match:
+            results.append(blk)
+
+    return results
+
+def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=None, **kwargs):
     """
     Get all blocks from a loaded dataframe that match certain criteria
     :param df: Dataframe read from a HDF5Store.
