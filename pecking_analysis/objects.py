@@ -430,6 +430,12 @@ def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=N
         else:
             df = df[df["Name"] == birds]
 
+<<<<<<< HEAD
+    df = df.sort_index().sort("Name")
+    paths = df["Path"].values
+
+    return [Block.load(filename, path) for path in paths]
+=======
     return df
 
 def summarize_file(filename, date=None, start_date=None, end_date=None, birds=None):
@@ -480,3 +486,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
     args.func(args)
+>>>>>>> origin/master

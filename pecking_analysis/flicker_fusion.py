@@ -128,7 +128,24 @@ def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filen
 
     return cfs
 
+def get_probe_blocks(blocks):
+
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+
+    return blocks
+
+
 def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, nsamples=100):
+    """
+    Calculates center frequency (with confidence). Will create models fitting a sigmoid predicting the birds response to a given frequency.
+    Multiple models will used to calculate a confidence interval for the calculated center frequencies.
+    nsamples = number data points used in each model
+    cfs = stores center frequencies
+    models = stores all information about each model created
+    fit_data = evenly samples across all tests involving probes
+    res = creates the model from samples chosen in fit_data
+    cf = calculated the center frequency based on res
+    """
 
     data = concatenate_data(blocks)
     data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
@@ -137,14 +154,22 @@ def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, n
     ### Change below here
     cfs = list()
     models = list()
-    for bootstrap in nbootstraps:
+    nfailed = 0
+    for bootstrap in range(nbootstraps):
 
         fit_data = sample_evenly(data, nsamples=nsamples)
-        res = compute_model(fit_data)
-        cf = get_center_frequency(res)
+        res = model_logistic(fit_data, log=log, scaled=scaled, disp=False)
+        print("Bootstrap %d of %d: model p-value was %1.2e" %(bootstrap, nbootstraps, res.llr_pvalue))
+        ri, ui = get_nonprobe_interruption_rates(fit_data)
+        try:
+            cfs.append(get_frequency_probability(res, 0.5, log=log, min_val=ri, max_val=ui))
+        except ValueError:
+            nfailed += 1
+            continue
 
         models.append(res)
-        cfs.append(cf)
+
+    print("%d models were not significant for %d samples from bird %s" % (nfailed, nsamples, blocks[0].name))
 
     return cfs, models
 
