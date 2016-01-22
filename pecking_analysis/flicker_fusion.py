@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+
 import os
 import copy
 import numpy as np
@@ -25,7 +27,7 @@ def divide_frequency_range(min_val, max_val, n, log=False, round_values=True):
 
     return values
 
-def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton"):
+def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton", do_plot=True):
 
     if fracs is None:
         fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
@@ -57,38 +59,41 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
         frac_rates.append(r)
     print(", ".join(["p = %0.2f) %4.2f (Hz)" % (f, fr) for f, fr in zip(fracs, frac_rates)]))
 
-    fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
-    ax = fig.add_subplot(111)
-    ax.plot(freqs, m, color="b", linewidth=2)
-    ax.plot(est_freqs, r_ests, color="r", linewidth=2)
+    if do_plot:
+        fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
+        ax = fig.add_subplot(111)
+        ax.plot(freqs, m, color="b", linewidth=2)
+        ax.plot(est_freqs, r_ests, color="r", linewidth=2)
 
-    ax.plot(freqs, reward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
-    ax.plot(freqs, unreward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
+        ax.plot(freqs, reward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
+        ax.plot(freqs, unreward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
 
-    ymin, ymax = ax.get_ylim()
-    for frac, fr in zip(fracs, frac_rates):
-        ax.plot(freqs, (reward_rate + (unreward_rate -reward_rate) * frac) * np.ones_like(freqs), linewidth=0.5, color=[0.7, 0.7, 0.7],
-                linestyle="--")
-        ax.plot([fr, fr], [ymin, ymax], linewidth=0.5, color=[0.7, 0.7, 0.7],
-                linestyle="--")
+        ymin, ymax = ax.get_ylim()
+        for frac, fr in zip(fracs, frac_rates):
+            ax.plot(freqs, (reward_rate + (unreward_rate -reward_rate) * frac) * np.ones_like(freqs), linewidth=0.5, color=[0.7, 0.7, 0.7],
+                    linestyle="--")
+            ax.plot([fr, fr], [ymin, ymax], linewidth=0.5, color=[0.7, 0.7, 0.7],
+                    linestyle="--")
 
-    ax.set_title(blocks[0].name)
-    ax.xaxis.set_ticks_position("bottom")
-    ax.yaxis.set_ticks_position("left")
-    for sp in ["top", "right"]:
-        ax.spines[sp].set_visible(False)
+        ax.set_title(blocks[0].name)
+        ax.xaxis.set_ticks_position("bottom")
+        ax.yaxis.set_ticks_position("left")
+        for sp in ["top", "right"]:
+            ax.spines[sp].set_visible(False)
 
-    ax.set_ylabel("Fraction Interruption")
-    ax.set_xlabel("Click Frequency (Hz)")
+        ax.set_ylabel("Fraction Interruption")
+        ax.set_xlabel("Click Frequency (Hz)")
 
-    if len(filename):
-        print('Saving figure to %s' % filename)
-        fig.savefig(filename, facecolor="white", edgecolor="white", dpi=450)
+        if len(filename):
+            print('Saving figure to %s' % filename)
+            fig.savefig(filename, facecolor="white", edgecolor="white", dpi=450)
 
     return models
 
-def estimate_center_frequency(blocks, log=True, scaled=True, plot=True, filename="", nbootstraps=5):
-
+def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filename="", nbootstraps=5):
+    """
+    Estimate the center frequency at each probe trial in blocks.
+    """
     data = concatenate_data(blocks)
     data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
     data = data[["Frequency", "Response", "Class"]]
@@ -108,7 +113,7 @@ def estimate_center_frequency(blocks, log=True, scaled=True, plot=True, filename
             cfs.append(np.nan)
 
 
-    if plot:
+    if do_plot:
         fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
         ax = fig.add_subplot(111)
         ax.plot(cfs, color="b", linewidth=2)
@@ -357,20 +362,74 @@ def filter_blocks(blocks):
 
     return blocks
 
+def probes(args):
+    import os
+    from pecking_analysis.objects import get_blocks
+
+    args.filename = os.path.abspath(os.path.expanduser(args.filename))
+    blocks = get_blocks(args.filename, birds=args.bird)
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+    blocks = filter_blocks(blocks)
+
+    get_response_by_frequency(blocks, do_plot=args.plot)
+
+
+def run_variance_calc(args):
+    import os
+    from pecking_analysis.objects import get_blocks
+
+    args.filename = os.path.abspath(os.path.expanduser(args.filename))
+    blocks = get_blocks(args.filename, birds=args.bird)
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+    blocks = filter_blocks(blocks)
+
+    if len(blocks) == 0:
+        print("No blocks found for %s with probe trials" % str(args.bird))
+        return
+
+    cfs = estimate_center_frequency(blocks, do_plot=args.plot)
+    df = pd.DataFrame(cfs, columns=["Center Frequency"])
+    df["Var"] = pd.rolling_var(df["Center Frequency"], window=10)
+    df["Mean"] = pd.rolling_mean(df["Center Frequency"], window=10)
+    df["Var Pct"] = 100 * df["Var"] / df["Mean"]
+
+    num_trials = 25
+    print("Displaying last %d probe trials" % num_trials)
+    pd.options.display.max_rows = 2 * num_trials
+    print(df.iloc[-num_trials:])
+
 
 if __name__ == "__main__":
-
-    import sys
     import os
-    from pecking_analysis import importer
+    import sys
+    import argparse
 
-    csv_files = list()
-    for arg in sys.argv[1:]:
-        filename = os.path.abspath(os.path.expanduser(arg))
-        if not os.path.exists(filename):
-            IOError("File %s does not exist!" % filename)
-        csv_files.append(filename)
+    h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
 
-    csv_importer = importer.PythonCSV()
-    blocks = csv_importer.parse(csv_files)
-    get_response_by_frequency(blocks)
+    parser = argparse.ArgumentParser(description="Compute probe frequencies")
+    subparsers = parser.add_subparsers(title="methods",
+                                       description="Valid methods",
+                                       help="Which flicker_fusion analysis method to run")
+
+    # Add options for checking probe stimuli
+    probe_parser = subparsers.add_parser("probe",
+                                       description="Check the current estimate for probe stimuli frequencies")
+    probe_parser.add_argument("bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    probe_parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    probe_parser.add_argument("--plot", dest="plot", help="Try to plot results", action="store_true")
+    probe_parser.set_defaults(func=probes)
+
+    # Add options for checking center frequency variance
+    var_parser = subparsers.add_parser("var",
+                                       description="Check the estimate of the center frequency, plus variance as percentage of mean")
+    var_parser.add_argument("bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
+    var_parser.add_argument("-f", "--filename", dest="filename", help="Path to h5 file", default=h5_file)
+    var_parser.add_argument("--plot", dest="plot", help="Try to plot results", action="store_true")
+    var_parser.set_defaults(func=run_variance_calc)
+
+    if len(sys.argv) == 1:
+        parser.print_usage()
+        sys.exit(1)
+
+    args = parser.parse_args()
+    args.func(args)
