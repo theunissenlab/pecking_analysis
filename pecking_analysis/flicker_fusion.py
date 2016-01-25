@@ -246,7 +246,7 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
     return result
 
-def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, even_sampling=True, method="bfgs", disp=True):
+def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, sampler=sample_evenly, method="bfgs", disp=True):
     """ Compute a logistic or scaled logistic model on the data
     """
 
@@ -260,10 +260,7 @@ def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, even_sa
 
     # Sample the non-probe stimuli so that they don't get too much emphasis
     if restrict_nonprobe:
-        if even_sampling:
-            data = sample_evenly(data, len(data[data["Class"] == "Probe"]) * 3)
-        else:
-            data = sample_mean_probe_count(data)
+        data = sampler(data, len(data[data["Class"] == "Probe"]) * 3)
 
     min_val, max_val = get_nonprobe_interruption_rates(data)
 

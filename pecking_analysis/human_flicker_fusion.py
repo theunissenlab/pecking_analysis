@@ -1,9 +1,6 @@
 import numpy as np
 from scipy.io import wavfile
-from pecking_analysis.flicker_fusion import get_filename_frequency,
-                                            model_logistic,
-                                            get_nonprobe_interruption_rates,
-                                            get_frequency_probability
+
 
 def generate_clicks(frequencies, duration=6, sample_rate=44100,
                     click_length=.001):
@@ -24,12 +21,156 @@ def generate_clicks(frequencies, duration=6, sample_rate=44100,
     return sounds
 
 
+def sample_evenly(df, nsamples=100, groupby="Class"):
+    """ Samples evenly nsamples combined points from all groups of groupby
+    :param df: pandas dataframe
+    :param nsamples: total number of samples from all groups
+    :param groupby: column of the dataframe whose groups we want to sample
+
+    returns a pandas dataframe with only the sampled rows
+    """
+
+    grouped = df.groupby(groupby)
+    samples_per = int(nsamples / len(grouped))
+    output = pd.concat([g.sample(samples_per) for name, g in grouped])
+
+    return output
+
+
+def sample_mean_probe_count(df):
+    """ Samples each frequency of rewarded and unrewarded stimuli the average number of times that each probe frequency was played.
+    """
+
+    grouped = df.groupby("Class")
+    udf = grouped.get_group("Unrewarded")
+    rdf = grouped.get_group("Rewarded")
+    pdf = grouped.get_group("Probe")
+    mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
+
+    udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
+                    udf.groupby("Frequency").groups.values()])
+    rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
+                    rdf.groupby("Frequency").groups.values()])
+
+    return pd.concat([udf, rdf, pdf]).sort_index()
+
+
+def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, sampler=sample_evenly, method="bfgs", disp=True):
+    """ Compute a logistic or scaled logistic model on the data
+    """
+
+    data = data.copy()
+    if log:
+        data["LogFreq"] = data["Frequency"].apply(np.log10)
+        freq_name = "LogFreq"
+    else:
+        freq_name = "Frequency"
+    data["Intercept"] = 1.0
+
+    # Sample the non-probe stimuli so that they don't get too much emphasis
+    if restrict_nonprobe:
+        data = sampler(data, len(data[data["Class"] == "Probe"]) * 3)
+
+    min_val, max_val = get_nonprobe_interruption_rates(data)
+
+    if scaled:
+        logit = ScaledLogit(data["Response"], data[[freq_name, "Intercept"]], min_val=min_val, max_val=max_val)
+    else:
+        logit = sm.Logit(data["Response"], data[[freq_name, "Intercept"]])
+
+    return logit.fit(method=method, disp=disp)
+
+
+def get_nonprobe_interruption_rates(data):
+    """ Computes the rewarded class and unrewarded class interruption rates
+    """
+
+    g = data.groupby("Class")
+    r = g.get_group("Rewarded")["Response"]
+    u = g.get_group("Unrewarded")["Response"]
+
+    return float(r.sum()) / r.count(), float(u.sum()) / u.count()
+
+
+class ScaledLogit(sm.Logit):
+
+    def __init__(self, endog, exog=None, min_val=0, max_val=1, **kwargs):
+
+        super(ScaledLogit, self).__init__(endog, exog=exog, **kwargs)
+
+        self.min_val = min_val
+        self.max_val = max_val
+
+    def _logit(self, X):
+
+        X = np.asarray(X)
+        return (1 / (1 + np.exp(-X)))
+
+    def cdf(self, X):
+
+        X = np.asarray(X)
+        return self.min_val + (self.max_val - self.min_val) * self._logit(X)
+
+    def pdf(self, X):
+
+        X = np.asarray(X)
+        return (self.max_val - self.min_val) * np.exp(-X) / (1 + np.exp(-X))**2
+
+    def score(self, params):
+
+        y = self.endog
+        X = self.exog
+        p = self.cdf(np.dot(X, params))
+
+        return np.dot((y - p) * (p - self.min_val) * (self.max_val - p) / (p * (1 - p)), X)
+
+    def hessian(self, params):
+
+        y = self.endog
+        X = self.exog
+        b = self.max_val - self.min_val
+        p = self.cdf(np.dot(X, params))
+        l = self._logit(np.dot(X, params))
+        g = -3 * p ** 2 + 2 * (self.max_val + self.min_val + 2 * y) * p - (self.max_val * self.min_val + y * (self.min_val + self.max_val))
+        d = (p - self.min_val) * (self.max_val - p) * (g * p * (1 - p) - (y - p) * (2 * p - 1) * (p - self.min_val) *
+                                                       (self.max_val - p)) / (p * (1 - p)) ** 2
+
+        return -np.dot(d * X.T, X)
+
+    def loglike(self, params):
+
+        y = self.endog
+        X = self.exog
+        p = self.cdf(np.dot(X, params))
+
+        return np.sum(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+    def loglikeobs(self, params):
+
+        y = self.endog
+        X = self.exog
+        p = self.cdf(np.dot(X, params))
+
+        return y * np.log(p) + (1 - y) * np.log(1 - p)
+
+
 def wavwrite(sound, fs, filename, overwrite=False):
 
     if os.path.exists(filename) and not overwrite:
         raise IOError("File exists. To save set overwrite=True")
 
     wav = wavfile.write(filename, fs, sound)
+
+
+def get_filename_frequency(filename):
+    """ Extracts the frequency value of a stimulus from its filename
+    """
+
+    ss = os.path.basename(filename).split("_")
+    try:
+        return int(ss[1])
+    except:
+        return None
 
 
 class Block(object):
