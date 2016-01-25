@@ -3,7 +3,6 @@ from __future__ import division
 import pandas as pd
 import numpy as np
 import scipy.stats
-from pecking_analysis.objects import Block
 
 def peck_data_old(blk, group1="Rewarded", group2="Unrewarded"):
 
@@ -79,7 +78,7 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
     TODO: Add pecks and feeds in case where both groups were not seen
     """
 
-    if isinstance(blocks, Block):
+    if not isinstance(blocks, list):
         blocks = [blocks]
 
     output = pd.DataFrame()

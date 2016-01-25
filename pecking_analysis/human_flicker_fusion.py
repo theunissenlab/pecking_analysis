@@ -114,7 +114,7 @@ def get_trial_data(trials, response_name="response", session=1, max_wait=10):
 if False:
     # Begin Experiment
     import pandas as pd
-    from pecking_analysis.human_flicker_fusion import generate_clicks, Block
+    from pecking_analysis.human_flicker_fusion import generate_clicks, Block, get_trial_data
     from pecking_analysis.peck_data import peck_data
 
     block = Block(name=expInfo["participant"])
