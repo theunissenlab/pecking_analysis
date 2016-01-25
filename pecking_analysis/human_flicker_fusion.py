@@ -1,6 +1,9 @@
 import numpy as np
 from scipy.io import wavfile
-
+from pecking_analysis.flicker_fusion import get_filename_frequency,
+                                            model_logistic,
+                                            get_nonprobe_interruption_rates,
+                                            get_frequency_probability
 
 def generate_clicks(frequencies, duration=6, sample_rate=44100,
                     click_length=.001):
@@ -109,12 +112,35 @@ def get_trial_data(trials, response_name="response", session=1, max_wait=10):
             max_wait]
 
 
+def get_response_by_frequency(block, log=True, fracs=None, scaled=True, nbootstraps=10, method="newton"):
+    """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
+    """
+
+    # Extract and concatenate data
+    data = blk.data.copy()
+    if "Frequency" not in data.columns:
+        data["Frequency"] = data["Stimulus"].append(get_filename_frequency)
+    data = data[["Response", "Frequency", "Class"]]
+
+    # Estimate models
+    reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
+    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False) for ii in range(nbootstraps)]
+
+    # Compute frequency at different points on the logistic
+    if fracs is None:
+        fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
+    frac_rates = list()
+    for frac in fracs:
+        r = get_frequency_probability(models, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
+        frac_rates.append(r)
+
+    return models, frac_rates
 
 
 if False:
     # Begin Experiment
     import pandas as pd
-    from pecking_analysis.human_flicker_fusion import generate_clicks, Block, get_trial_data
+    from pecking_analysis.human_flicker_fusion import *
     from pecking_analysis.peck_data import peck_data
 
     block = Block(name=expInfo["participant"])
@@ -178,8 +204,7 @@ if False:
 
     if (nProbes % probeModelTrials == 0) and (nProbes > probeModelTrials):
         block.data = pd.DataFrame(block_data)
-        models, currentFrequencies = get_response_by_frequency([block],
-                                                               do_plot=False)
+        models, currentFrequencies = get_response_by_frequency(block)
         llrPerProbe = [mm.llr for mm in models]
         if prevLLRPerProbe is not None:
             tstat, pvalue = ttest_ind(prevLLRPerProbe, llrPerProbe)
