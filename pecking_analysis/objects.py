@@ -47,7 +47,7 @@ class Block(object):
         self.date = date
         self.start = start
         self.data = data
-        self._store = store
+        self.store = store
 
         self.annotations = dict()
         self.annotate(**kwargs)

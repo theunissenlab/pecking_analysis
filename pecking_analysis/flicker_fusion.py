@@ -22,34 +22,22 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
     """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
     """
 
-    if fracs is None:
-        fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
-
     # Extract and concatenate data
     data = pd.DataFrame()
-    bins = np.array([30, 50, 80, 120, 170, 230, 300, 380, 470, 570, 700, 900, 1000])
-    bin_freqs = lambda freq: bins[np.nonzero(np.ceil(float(freq) / bins) == 1)[0][0]]
     for ii, blk in enumerate(blocks):
         freq_df = blk.data.copy()
-        freq_df["Frequency"] = freq_df["Stimulus"].apply(get_filename_frequency)
-        freq_df["FreqGroup"] = freq_df["Frequency"].apply(bin_freqs)
+        if "Frequency" not in freq_df.columns:
+            freq_df["Frequency"] = freq_df["Stimulus"].apply(get_filename_frequency)
         freq_df["Response"] = blk.data["Response"]
-        data = data.append(freq_df[["Frequency", "Response", "Class", "FreqGroup"]])
-
-    # Get raw data for binned frequencies
-    grouped = data.groupby("FreqGroup")
-    # grouped = data.groupby("Frequency")
-    m = grouped.mean()["Response"]
-    freqs = m.index.values.astype(float)
-    m = m.values
+        data = data.append(freq_df[["Frequency", "Response", "Class"]])
 
     # Estimate models
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
     models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False) for ii in range(nbootstraps)]
-    est_freqs = np.arange(10, 1000, 10)
-    r_ests = model_predict(models, est_freqs, log=log)
 
     # Compute frequency at different points on the logistic
+    if fracs is None:
+        fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
     frac_rates = list()
     for frac in fracs:
         r = get_frequency_probability(models, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
@@ -57,6 +45,20 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
     print(", ".join(["p = %0.2f) %4.2f (Hz)" % (f, fr) for f, fr in zip(fracs, frac_rates)]))
 
     if do_plot:
+        bins = np.array([30, 50, 80, 120, 170, 230, 300, 380, 470, 570, 700, 900, 1000])
+        bin_freqs = lambda freq: bins[np.nonzero(np.ceil(float(freq) / bins) == 1)[0][0]]
+        data["FreqGroup"] = data["Frequency"].apply(bin_freqs)
+
+        # Get raw data for binned frequencies
+        grouped = data.groupby("FreqGroup")
+        # grouped = data.groupby("Frequency")
+        m = grouped.mean()["Response"]
+        freqs = m.index.values.astype(float)
+        m = m.values
+
+        est_freqs = np.arange(10, 1000, 10)
+        r_ests = model_predict(models, est_freqs, log=log)
+
         fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
         ax = fig.add_subplot(111)
         ax.plot(freqs, m, color="b", linewidth=2)
