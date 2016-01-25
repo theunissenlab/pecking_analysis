@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from scipy.io import wavfile
-import statsmodels.api as sm
+import statsmodels.discrete.discrete_model import Logit
 
 
 def generate_clicks(frequencies, duration=6, sample_rate=44100,
@@ -76,7 +76,7 @@ def get_nonprobe_interruption_rates(data):
     return float(r.sum()) / r.count(), float(u.sum()) / u.count()
 
 
-class ScaledLogit(sm.Logit):
+class ScaledLogit(Logit):
 
     def __init__(self, endog, exog=None, min_val=0, max_val=1, **kwargs):
 
