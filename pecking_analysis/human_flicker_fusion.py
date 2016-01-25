@@ -1,5 +1,7 @@
 import numpy as np
+import pandas as pd
 from scipy.io import wavfile
+import statsmodels.api as sm
 
 
 def generate_clicks(frequencies, duration=6, sample_rate=44100,
@@ -35,24 +37,6 @@ def sample_evenly(df, nsamples=100, groupby="Class"):
     output = pd.concat([g.sample(samples_per) for name, g in grouped])
 
     return output
-
-
-def sample_mean_probe_count(df):
-    """ Samples each frequency of rewarded and unrewarded stimuli the average number of times that each probe frequency was played.
-    """
-
-    grouped = df.groupby("Class")
-    udf = grouped.get_group("Unrewarded")
-    rdf = grouped.get_group("Rewarded")
-    pdf = grouped.get_group("Probe")
-    mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
-
-    udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
-                    udf.groupby("Frequency").groups.values()])
-    rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
-                    rdf.groupby("Frequency").groups.values()])
-
-    return pd.concat([udf, rdf, pdf]).sort_index()
 
 
 def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, sampler=sample_evenly, method="bfgs", disp=True):
