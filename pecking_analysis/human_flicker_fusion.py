@@ -1,7 +1,8 @@
+import os
 import numpy as np
 import pandas as pd
 from scipy.io import wavfile
-import statsmodels.discrete.discrete_model import Logit
+from statsmodels.discrete.discrete_model import Logit
 
 
 def generate_clicks(frequencies, duration=6, sample_rate=44100,
@@ -202,35 +203,37 @@ class Block(object):
         return True
 
 
-def get_trial_data(trials, response_name="response", session=1, max_wait=10):
+def get_trial_data(trials, response, session=1, max_wait=3):
 
     # Data is stored as a dictionary of 2D arrays
     # http://www.psychopy.org/general/dataOutputs.html
 
-    response = trials.data[response_name + ".keys"] is not None
+    responded = (response.keys is not None)
+    if responded is True:
+        rt = response.rt
+        if rt < max_wait:
+            responded = False
+    else:
+        rt = None
+
     condition = trials.trialList[trials.thisIndex]
-    className = condition["type"]
-    stimFilename = os.path.basename(condition["shape"])
-    if className == "nonreward" and response is True:
+    className = condition["condition"]
+    stimFilename = os.path.basename(condition["filename"])
+    if className == "nonreward" and responded is True:
         correct = True
         reward = False
-    elif className == "reward" and response is False:
+    elif className == "reward" and responded is False:
         correct = True
         reward = True
     else:
         correct = False
         reward = False
 
-    if response is True:
-        rt = trials.data[response_name + ".rt"]
-    else:
-        rt = None
-
     return [session,
             trials.thisN,
             stimFilename,
             className,
-            response,
+            responded,
             correct,
             rt,
             reward,
@@ -282,6 +285,7 @@ if False:
     # Shaping routine
     # Start experiment
     shapingModelTrials = 10
+    pThreshold = 0.001
     block_data = dict()
 
     # End Routine 1
@@ -289,21 +293,21 @@ if False:
     # If performance is below some threshold (0.05) then end routine
     # End routine with "trials.finished = True"
 
-    trialData = get_trial_data(trials, session=1,
-                               response_name="shape_response")
+    trialData = get_trial_data(shape_trials, shape_response, session=1)
     for key, val in zip(columnNames, trialData):
         block_data.setdefault(key, list()).append(val)
 
-    if trials.thisN % shapingModelTrials == 0:
+    if (shape_trials.thisN % shapingModelTrials == 0) and (shape_trials.thisN >= shapingModelTrials):
         block.data = pd.DataFrame(block_data)
-        print block.data
-        performance = peck_data(block)
+        #print block.data
+        performance = peck_data(block, group1="reward", group2="nonreward")
         if performance is not None:
-            if performance["Stats", "P-Value"] < 0.05:
-                trials.finished = True
+            if performance["Stats", "P-Value"] < pThreshold:
+                shape_trials.finished = True
 
     # Probe routine
     # Start experiment
+    nProbes = 0
     probeModelTrials = 10
     probeConverge = 3
     minFreq = 10
@@ -318,30 +322,34 @@ if False:
     # Overwrite the probe stimuli
     # Check convergence of model over last XX estimates
 
-    # Find probe condition number
-    if trials.thisN == 0:
-        probeNo = [ii for ii, dd in enumerate(trials.trialList) if dd["type"] == "probe"][0]
-
-    nProbes = len(trials.data["response.keys"][probeNo])
-    trialData = get_trial_data(trials, session=2)
+    trialData = get_trial_data(probe_trials, probe_response, session=2)
     for key, val in zip(columnNames, trialData):
         block_data.setdefault(key, list()).append(val)
+    print block_data
+    if block_data["Class"] == "probe":
+        nProbes += 1
 
-    if (nProbes % probeModelTrials == 0) and (nProbes > probeModelTrials):
+    if (nProbes % probeModelTrials == 0) and (nProbes >= probeModelTrials):
+        print "Number of probes: %d"  % nProbes
         block.data = pd.DataFrame(block_data)
         models, currentFrequencies = get_response_by_frequency(block)
-        llrPerProbe = [mm.llr for mm in models]
+        llrPerProbe = [mm.llr / float(nProbes) for mm in models]
+        print llrPerProbe
         if prevLLRPerProbe is not None:
             tstat, pvalue = ttest_ind(prevLLRPerProbe, llrPerProbe)
+            print (tstat, pvalue)
             # tstat < 0 should mean that llrPerProbe > prevLLRPerProbe
-            if (pvalue < 0.05) and (tstat < 0):
+            if (pvalue < .05) and (tstat < 0):
                 prevLLRPerProbe = llrPerProbe
                 nSinceBest = 0
             else:
                 nSinceBest += 1
+        else:
+            prevLLRPerProbe = llrPerProbe
+            nSinceBest = 0
 
         if nSinceBest >= probeConverge:
-            trials.finished = True
+            probe_trials.finished = True
 
         # Create stimuli at those frequencies
         sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
