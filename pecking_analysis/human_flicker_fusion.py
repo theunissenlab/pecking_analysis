@@ -211,7 +211,7 @@ def get_trial_data(trials, response, session=1, max_wait=3):
     responded = (response.keys is not None)
     if responded is True:
         rt = response.rt
-        if rt < max_wait:
+        if rt > max_wait:
             responded = False
     else:
         rt = None
@@ -245,6 +245,7 @@ def get_response_by_frequency(block, log=True, fracs=None, scaled=True, nbootstr
     """
 
     # Extract and concatenate data
+    print "Calculating model..."
     data = blk.data.copy()
     if "Frequency" not in data.columns:
         data["Frequency"] = data["Stimulus"].append(get_filename_frequency)
@@ -262,6 +263,7 @@ def get_response_by_frequency(block, log=True, fracs=None, scaled=True, nbootstr
         r = get_frequency_probability(models, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
         frac_rates.append(r)
 
+    print "Finished"
     return models, frac_rates
 
 
@@ -287,6 +289,8 @@ if False:
     shapingModelTrials = 10
     pThreshold = 0.001
     block_data = dict()
+    rewardCount = 0
+    trialNo = 0
 
     # End Routine 1
     # Every XX trials compute the performance of the subject
@@ -294,6 +298,8 @@ if False:
     # End routine with "trials.finished = True"
 
     trialData = get_trial_data(shape_trials, shape_response, session=1)
+    className = trialData[3]
+    responded = trialData[4]
     for key, val in zip(columnNames, trialData):
         block_data.setdefault(key, list()).append(val)
 
@@ -305,10 +311,21 @@ if False:
             if performance["Stats", "P-Value"] < pThreshold:
                 shape_trials.finished = True
 
+    #Milan:
+
+    trialNo += 1
+    if className == "reward" and responded is False:
+        rewardCount = rewardCount + 1
+
+    msg = "Trial = %d\nYour score = %d\nnProbes=%d" % (trialNo, rewardCount, nProbes)
+
+    #Volume
+
+
     # Probe routine
     # Start experiment
     nProbes = 0
-    probeModelTrials = 10
+    probeModelTrials = 5
     probeConverge = 3
     minFreq = 10
     maxFreq = 100
@@ -326,7 +343,9 @@ if False:
     for key, val in zip(columnNames, trialData):
         block_data.setdefault(key, list()).append(val)
     print block_data
-    if block_data["Class"] == "probe":
+    className = trialData[3]
+    responded = trialData[4]
+    if className == "probe":
         nProbes += 1
 
     if (nProbes % probeModelTrials == 0) and (nProbes >= probeModelTrials):
@@ -352,7 +371,55 @@ if False:
             probe_trials.finished = True
 
         # Create stimuli at those frequencies
-        sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
-                                 sample_rate=44100)
-        for sound in sounds:
-            wavwrite(sound, 44100, filename)
+        #sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
+        #                         sample_rate=44100)
+        #for sound in sounds:
+        #    wavwrite(sound, 44100, filename)
+
+    trialNo += 1
+    if className == "reward" and responded is False:
+        rewardCount = rewardCount + 1
+
+    #EndRoutine2
+    #volume_trials
+
+    trialData = get_trial_data(volume_trials, volume_response, session=3)
+    for key, val in zip(columnNames, trialData):
+        block_data.setdefault(key, list()).append(val)
+    print block_data
+    className = trialData[3]
+    responded = trialData[4]
+    if className == "probe":
+        nProbes += 1
+
+    if (nProbes % probeModelTrials == 0) and (nProbes >= probeModelTrials):
+        print "Number of probes: %d"  % nProbes
+        block.data = pd.DataFrame(block_data)
+        models, currentFrequencies = get_response_by_frequency(block)
+        llrPerProbe = [mm.llr / float(nProbes) for mm in models]
+        print llrPerProbe
+        if prevLLRPerProbe is not None:
+            tstat, pvalue = ttest_ind(prevLLRPerProbe, llrPerProbe)
+            print (tstat, pvalue)
+            # tstat < 0 should mean that llrPerProbe > prevLLRPerProbe
+            if (pvalue < .05) and (tstat < 0):
+                prevLLRPerProbe = llrPerProbe
+                nSinceBest = 0
+            else:
+                nSinceBest += 1
+        else:
+            prevLLRPerProbe = llrPerProbe
+            nSinceBest = 0
+
+        if nSinceBest >= probeConverge:
+            volume_trials.finished = True
+
+        # Create stimuli at those frequencies
+        #sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
+        #                         sample_rate=44100)
+        #for sound in sounds:
+        #    wavwrite(sound, 44100, filename)
+
+    trialNo += 1
+    if className == "reward" and responded is False:
+        rewardCount = rewardCount + 1
