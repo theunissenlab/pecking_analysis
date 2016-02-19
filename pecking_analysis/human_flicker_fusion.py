@@ -1,4 +1,6 @@
 import os
+import time
+import logging
 import numpy as np
 import pandas as pd
 from scipy.io import wavfile
@@ -11,9 +13,10 @@ def generate_clicks(frequencies, duration=6, sample_rate=44100,
     sound_length = int(duration * sample_rate)
     click_length = int(click_length * sample_rate)
     click = np.random.normal(click_length)
-
+    logging.debug("Creating %d sounds of length %2.1f seconds" % (len(frequencies), duration))
     sounds = list()
     for ii, freq in enumerate(frequencies):
+        logging.debug("Creating sound with click frequency %3.1f Hz" % freq)
         interval = int(duration / float(freq))
         onsets = range(0, sound_length, interval)
         sound = np.zeros(duration)
@@ -144,6 +147,7 @@ def wavwrite(sound, fs, filename, overwrite=False):
     if os.path.exists(filename) and not overwrite:
         raise IOError("File exists. To save set overwrite=True")
 
+    logging.info("Writing sound to filename %s" % filename)
     wav = wavfile.write(filename, fs, sound)
 
 
@@ -160,34 +164,49 @@ def get_filename_frequency(filename):
 
 class Block(object):
 
+    columnNames = ["Session",
+                   "Trial",
+                   "Stimulus",
+                   "Class",
+                   "Response",
+                   "Correct",
+                   "RT",
+                   "Reward",
+                   "Max Wait"]
+
     def __init__(self,
                  name=None,
-                 date=None,
-                 start=None,
-                 data=None,
-                 store=None,
+                 trial=0,
+                 reward=0,
+                 correct=0,
                  **kwargs):
         """
         Creates a Block object that stores data about a single chunk of trials
         for the pecking test
         :param name: The bird's name
-        :param date: The date of the block - A datetime.date
-        :param start: A start time of the block - A datetime.time
-        :param filename: The CSV filename where the data came from
-        :param data: The imported pandas DataFrame
-        :param store: An HDF5Store instance.
         :param kwargs: Any additional keyword arguments will be added as
-        annotations
+        parameters
         """
 
         self.name = name
-        self.date = date
-        self.start = start
-        self.data = data
-        self.store = store
+        self.trial = trial
+        self.reward = reward
+        self.correct = correct
 
-        self.annotations = dict()
+        self.data = None
+        self.datadict = dict()
+        self.params = dict()
         self.annotate(**kwargs)
+
+        logging.info("Created block %s" % str(self))
+
+    def __str__(self):
+
+        return "%s name: %s, trial: %d, reward: %d, correct: %d" % (self.__class__,
+                                                                    self.name,
+                                                                    self.trial,
+                                                                    self.reward,
+                                                                    self.correct)
 
     def annotate(self, **annotations):
         """
@@ -196,48 +215,165 @@ class Block(object):
         :return:
         """
 
-        self.annotations.update(annotations)
-        if self.store is not None:
-            return self.store.annotate_block(self, **self.annotations)
-
+        self.params.update(annotations)
         return True
 
+    def set_data(self):
 
-def get_trial_data(trials, response, session=1, max_wait=3):
+        self.data = pd.DataFrame(self.datadict)
 
-    # Data is stored as a dictionary of 2D arrays
-    # http://www.psychopy.org/general/dataOutputs.html
+    def check(self):
 
-    responded = (response.keys is not None)
-    if responded is True:
-        rt = response.rt
-        if rt > max_wait:
-            responded = False
-    else:
-        rt = None
+        return False
 
-    condition = trials.trialList[trials.thisIndex]
-    className = condition["condition"]
-    stimFilename = os.path.basename(condition["filename"])
-    if className == "nonreward" and responded is True:
-        correct = True
-        reward = False
-    elif className == "reward" and responded is False:
-        correct = True
-        reward = True
-    else:
-        correct = False
-        reward = False
+    def message(self):
 
-    return [session,
-            trials.thisN,
-            stimFilename,
-            className,
-            responded,
-            correct,
-            rt,
-            reward,
-            max_wait]
+        return "Trial = %d\nYour score = %d" % (self.trial,
+                                                self.reward)
+
+    def add_trial(self, trials, response, max_wait=3):
+
+        logging.debug("Collecting trial %d" self.trial + 1)
+        responded = (response.keys is not None)
+        if responded is True:
+            rt = response.rt
+            if rt > max_wait:
+                responded = False
+        else:
+            rt = None
+
+        condition = trials.trialList[trials.thisIndex]
+        className = condition["condition"]
+        stimFilename = os.path.basename(condition["filename"])
+        if className == "nonreward" and responded is True:
+            correct = True
+            reward = False
+        elif className == "reward" and responded is False:
+            correct = True
+            reward = True
+        else:
+            correct = False
+            reward = False
+
+        trial_data = [0,
+                      trials.thisN,
+                      stimFilename,
+                      className,
+                      responded,
+                      correct,
+                      rt,
+                      reward,
+                      max_wait]
+
+        self.trial += 1
+        if reward:
+            self.reward += 1
+        if correct:
+            self.correct += 1
+
+        for key, val in zip(self.columns, trial_data):
+            self.datadict.setdefault(key, list()).append(val)
+
+
+class ShapeBlock(Block):
+
+    def __init__(self, check_trials=10, pThreshold=.001, **kwargs):
+
+        super(ShapeBlock, self).__init__(check_trials=check_trials,
+                                         pThreshold=pThreshold,
+                                         **kwargs)
+
+    def check(self):
+
+        if (self.trial > 0) and (self.trial % self.params["check_trials"] == 0):
+            logging.info("Trial %d - Checking shaping performance" % self.trial)
+            self.set_data()
+            performance = peck_data(self, group1="reward", group2="nonreward")
+            if performance is not None:
+                if performance["Stats", "P-Value"] < self.params["pThreshold"]:
+                    return True
+
+        return False
+
+
+class ProbeBlock(Block):
+
+    nprobes = property(fget=lambda self: self.datadict["Class"].count("probe"))
+
+    def __init__(self, frequencies=None, check_trials=5, check_converge=3,
+                 pThreshold=.05, minFreq=10, maxFreq=100, **kwargs):
+
+        super(ProbeBlock, self).__init__(check_trials=check trials,
+                                         check_converge=check_converge,
+                                         minFreq=minFreq,
+                                         maxFreq=maxFreq,
+                                         pThreshold=pThreshold,
+                                         **kwargs)
+        if frequencies is None:
+            frequencies = [30, 45, 60, 75, 90]
+        self.bestLLR = None
+        self.nSinceBest = 0
+
+    def message(self):
+
+        return "Trial = %d\nYour score = %d\nProbes = %d" % (self.trial,
+                                                             self.reward,
+                                                             self.nprobes)
+
+    def check(self):
+
+        if (self.nprobes > 0) and (self.nprobes % self.params["check_trials"] == 0):
+            logging.info("Probe %d - Checking model performance" % self.nprobes)
+            self.set_data()
+            self.data["Frequency"] = self.data["Stimulus"].apply(lambda ss: self.get_frequency(ss))
+            start = time.time()
+            models, currentFrequencies = get_response_by_frequency(self)
+            logging.debug("Model computation took %3.2f seconds" % time.time() - start)
+            llrPerProbe = [mm.llr / float(self.nprobes) for mm in models]
+            if self.bestLLR is not None:
+                logging.debug("Comparing llr distributions")
+                tstat, pvalue = ttest_ind(self.bestLLR, llrPerProbe)
+                logging.debug("t-stat: %3.2f, p-value: %3.2e" % (tstat, pvalue))
+                # tstat < 0 should mean that llrPerProbe > prevLLRPerProbe
+                if (pvalue < self.params["pThreshold"]) and (tstat < 0):
+                    logging.info("Model is improving. Computing new sounds")
+                    self.bestLLR = llrPerProbe
+                    self.nSinceBest = 0
+                    self.store_frequencies(currentFrequencies)
+                    self.make_sounds()
+                else:
+                    self.nSinceBest += 1
+            else:
+                self.bestLLR = llrPerProbe
+                self.nSinceBest = 0
+                self.store_frequencies(currentFrequencies)
+                self.make_sounds()
+
+            if self.nSinceBest >= self.params["check_converge"]:
+                return True
+
+        return False
+
+    def get_frequency(self, filename):
+
+        frequency = get_filename_frequency(filename)
+        if frequency is None:
+            frequency = self.frequency_dict.get(filename, None)
+
+        return frequency
+
+    def store_frequencies(self, frequencies):
+
+        self.frequencies = frequencies
+        self.frequency_dict = dict([("sound_%d.wav", freq) for ii, freq in enumerate(self.frequencies)])
+
+    def make_sounds(self):
+
+        # Create stimuli at those frequencies
+        frequencies = [min(max(freq, self.params["minFreq"]), self.params["minFreq"]) for freq in self.frequencies]
+        sounds = generate_clicks(frequencies, sample_rate=44100)
+        for sound in sounds:
+            wavwrite(sound, 44100, filename)
 
 
 def get_response_by_frequency(block, log=True, fracs=None, scaled=True, nbootstraps=10, method="newton"):
@@ -248,7 +384,7 @@ def get_response_by_frequency(block, log=True, fracs=None, scaled=True, nbootstr
     print "Calculating model..."
     data = blk.data.copy()
     if "Frequency" not in data.columns:
-        data["Frequency"] = data["Stimulus"].append(get_filename_frequency)
+        data["Frequency"] = data["Stimulus"].apply(get_filename_frequency)
     data = data[["Response", "Frequency", "Class"]]
 
     # Estimate models
@@ -273,153 +409,42 @@ if False:
     from pecking_analysis.human_flicker_fusion import *
     from pecking_analysis.peck_data import peck_data
 
-    block = Block(name=expInfo["participant"])
-    columnNames = ["Session",
-                   "Trial",
-                   "Stimulus",
-                   "Class",
-                   "Response",
-                   "Correct",
-                   "RT",
-                   "Reward",
-                   "Max Wait"]
-
     # Shaping routine
-    # Start experiment
-    shapingModelTrials = 10
-    pThreshold = 0.001
-    block_data = dict()
-    rewardCount = 0
-    trialNo = 0
+    ## Start routine
+    if shape_trials.thisN == 0:
+        shape_block = ShapeBlock(name=expInfo["participant"])
 
-    # End Routine 1
-    # Every XX trials compute the performance of the subject
-    # If performance is below some threshold (0.05) then end routine
-    # End routine with "trials.finished = True"
-
-    trialData = get_trial_data(shape_trials, shape_response, session=1)
-    className = trialData[3]
-    responded = trialData[4]
-    for key, val in zip(columnNames, trialData):
-        block_data.setdefault(key, list()).append(val)
-
-    if (shape_trials.thisN % shapingModelTrials == 0) and (shape_trials.thisN >= shapingModelTrials):
-        block.data = pd.DataFrame(block_data)
-        #print block.data
-        performance = peck_data(block, group1="reward", group2="nonreward")
-        if performance is not None:
-            if performance["Stats", "P-Value"] < pThreshold:
-                shape_trials.finished = True
-
-    #Milan:
-
-    trialNo += 1
-    if className == "reward" and responded is False:
-        rewardCount = rewardCount + 1
-
-    msg = "Trial = %d\nYour score = %d\nnProbes=%d" % (trialNo, rewardCount, nProbes)
-
-    #Volume
+    ## End Routine
+    shape_block.add_trial(shape_response, shape_trials)
+    msg = shape_block.message()
+    finished = shape_block.check()
+    if finished:
+        shape_trials.finshed = True
 
 
     # Probe routine
-    # Start experiment
-    nProbes = 0
-    probeModelTrials = 5
-    probeConverge = 3
-    minFreq = 10
-    maxFreq = 100
-    currentFrequencies = list()
-    prevLLRPerProbe = None
-    nSinceBest = 0
-    block_data = dict()
+    ## Start routine
+    if probe_trials.thisN == 0:
+        probe_block = ProbeBlock(name=expInfo["participant"], trial=shape_block.trial, reward=shape_block.reward, correct=shape_block.correct)
 
-    # End Routine 1
-    # Every XX trials compute the model of the subject's performance.
-    # Overwrite the probe stimuli
-    # Check convergence of model over last XX estimates
+    ## End Routine
+    probe_block.add_trial(probe_response, probe_trials)
+    msg = probe_block.message()
+    finished = probe_block.check()
+    if finished:
+        probe_trials.finished = True
 
-    trialData = get_trial_data(probe_trials, probe_response, session=2)
-    for key, val in zip(columnNames, trialData):
-        block_data.setdefault(key, list()).append(val)
-    print block_data
-    className = trialData[3]
-    responded = trialData[4]
-    if className == "probe":
-        nProbes += 1
 
-    if (nProbes % probeModelTrials == 0) and (nProbes >= probeModelTrials):
-        print "Number of probes: %d"  % nProbes
-        block.data = pd.DataFrame(block_data)
-        models, currentFrequencies = get_response_by_frequency(block)
-        llrPerProbe = [mm.llr / float(nProbes) for mm in models]
-        print llrPerProbe
-        if prevLLRPerProbe is not None:
-            tstat, pvalue = ttest_ind(prevLLRPerProbe, llrPerProbe)
-            print (tstat, pvalue)
-            # tstat < 0 should mean that llrPerProbe > prevLLRPerProbe
-            if (pvalue < .05) and (tstat < 0):
-                prevLLRPerProbe = llrPerProbe
-                nSinceBest = 0
-            else:
-                nSinceBest += 1
-        else:
-            prevLLRPerProbe = llrPerProbe
-            nSinceBest = 0
+    # Volume routine
+    ## Start routine
+    if volume_trials.thisN == 0:
+        volume_block = ProbeBlock(frequencies=probe_block.frequencies, name=expInfo["participant"], trial=shape_block.trial + probe_block.trial, reward=shape_block.reward + probe_block.reward, correct=shape_block.correct + probe_block.correct)
+    randVol = min(max(normal(0.5, 0.2), 0.0), 1.0)
+    volume_sound.setVolume(randVol)
 
-        if nSinceBest >= probeConverge:
-            probe_trials.finished = True
-
-        # Create stimuli at those frequencies
-        #sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
-        #                         sample_rate=44100)
-        #for sound in sounds:
-        #    wavwrite(sound, 44100, filename)
-
-    trialNo += 1
-    if className == "reward" and responded is False:
-        rewardCount = rewardCount + 1
-
-    #EndRoutine2
-    #volume_trials
-
-    trialData = get_trial_data(volume_trials, volume_response, session=3)
-    for key, val in zip(columnNames, trialData):
-        block_data.setdefault(key, list()).append(val)
-    print block_data
-    className = trialData[3]
-    responded = trialData[4]
-    if className == "probe":
-        nProbes += 1
-
-    if (nProbes % probeModelTrials == 0) and (nProbes >= probeModelTrials):
-        print "Number of probes: %d"  % nProbes
-        block.data = pd.DataFrame(block_data)
-        models, currentFrequencies = get_response_by_frequency(block)
-        llrPerProbe = [mm.llr / float(nProbes) for mm in models]
-        print llrPerProbe
-        if prevLLRPerProbe is not None:
-            tstat, pvalue = ttest_ind(prevLLRPerProbe, llrPerProbe)
-            print (tstat, pvalue)
-            # tstat < 0 should mean that llrPerProbe > prevLLRPerProbe
-            if (pvalue < .05) and (tstat < 0):
-                prevLLRPerProbe = llrPerProbe
-                nSinceBest = 0
-            else:
-                nSinceBest += 1
-        else:
-            prevLLRPerProbe = llrPerProbe
-            nSinceBest = 0
-
-        if nSinceBest >= probeConverge:
-            volume_trials.finished = True
-
-        # Create stimuli at those frequencies
-        #sounds = generate_clicks([freq for freq in currentFrequencies if minFreq <= freq <= maxFreq],
-        #                         sample_rate=44100)
-        #for sound in sounds:
-        #    wavwrite(sound, 44100, filename)
-
-    trialNo += 1
-    if className == "reward" and responded is False:
-        rewardCount = rewardCount + 1
+    ## End routine
+    volume_block.add_trial(volume_response, volume_trials)
+    msg = volume_block.message()
+    finished = volume_block.check()
+    if finished:
+        volume_trials.finished = True
