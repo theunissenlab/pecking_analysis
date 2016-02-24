@@ -87,55 +87,35 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
         if (blk.data is None) or (len(blk.data) == 0):
             continue
 
+        total_pecks = total_group1 = total_group2 = total_feeds = \
+        percent_group1 = percent_group2 = interrupt_group1 = \
+        interrupt_group2 = 0
+
         data = blk.data.copy()
         results = dict()
 
         # Get peck information
         total_pecks = len(blk.data)
-        results[("Total", "Trials")] = total_pecks
-
-        group1_data = blk.data[blk.data["Class"] == group1]
-        total_group1 = len(group1_data)
-        results[("Total", group1)] = total_group1
-
-        group2_data = blk.data[blk.data["Class"] == group2]
-        total_group2 = len(group2_data)
-        results[("Total", group2)] = total_group2
-
-        if (total_group1 == 0) or (total_group2 == 0):
-            continue
-
         total_feeds = blk.data["Reward"].sum()
-        results[("Total", "Feeds")] = total_feeds
+        total_responses = blk.data["Response"].sum()
 
-        # Get percentages
-        percent_group1 = total_group1 / total_pecks
-        results[("Percent", group1)] = percent_group1
-        percent_group2 = total_group2 / total_pecks
-        results[("Percent", group2)] = percent_group2
+        # Collect group statistics
+        if total_pecks > 0:
+            percent_interrupt = total_responses / total_pecks
 
-        # Get interruption information
-        if total_group1 > 0:
-            interrupt_group1 = group1_data["Response"].sum()
-        else:
-            interrupt_group1 = 0
+            group1_data = blk.data[blk.data["Class"] == group1]
+            total_group1 = len(group1_data)
+            percent_group1 = total_group1 / total_pecks
+            if total_group1 > 0:
+                interrupt_group1 = group1_data["Response"].sum() / total_group1
 
-        if total_group2 > 0:
-            interrupt_group2 = group2_data["Response"].sum()
-        else:
-            interrupt_group2 = 0
+            group2_data = blk.data[blk.data["Class"] == group2]
+            total_group2 = len(group2_data)
+            percent_group2 = total_group2 / total_pecks
+            if total_group2 > 0:
+                interrupt_group2 = group2_data["Response"].sum() / total_group2
 
-
-        total_responses = interrupt_group1 + interrupt_group2
-        percent_interrupt = total_responses / total_pecks
-        results[("Interrupt", "Total")] = percent_interrupt
-
-        interrupt_group1 = interrupt_group1 / total_group1
-        results[("Interrupt", group1)] = interrupt_group1
-
-        interrupt_group2 = interrupt_group2 / total_group2
-        results[("Interrupt", group2)] = interrupt_group2
-
+        # Compare the two groups
         if (total_group1 > 0) and (total_group2 > 0):
             mu = (interrupt_group2 - interrupt_group1)
             sigma = np.sqrt(percent_interrupt * (1 - percent_interrupt) * (1 / total_group1 + 1 / total_group2))
@@ -147,13 +127,22 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
             binomial_pvalue = 1.0
             is_significant = False
 
+        results[("Total", group1)] = total_group1
+        results[("Total", "Trials")] = total_pecks
+        results[("Total", group2)] = total_group2
+        results[("Total", "Feeds")] = total_feeds
+        results[("Percent", group1)] = percent_group1
+        results[("Percent", group2)] = percent_group2
+        results[("Interrupt", "Total")] = percent_interrupt
+        results[("Interrupt", group1)] = interrupt_group1
+        results[("Interrupt", group2)] = interrupt_group2
         results[("Stats", "Z-Score")] = zscore
         results[("Stats", "P-Value")] = binomial_pvalue
         results = pd.DataFrame(results, index=[0])
 
-        results["Bird"] = blk.name
-        results["Date"] = str(blk.date)
-        results["Time"] = str(blk.start)
+        results["Bird"] = str(getattr(blk, "name", None))
+        results["Date"] = str(getattr(blk, "date", None))
+        results["Time"] = str(getattr(blk, "start", None))
         results = results.set_index(["Bird", "Date", "Time"])
 
         output = pd.concat([results, output])
