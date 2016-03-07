@@ -1,12 +1,14 @@
 #!/usr/bin/env python
 import os
+import random
 import copy
 import numpy as np
-from matplotlib import pyplot as plt
-import random
-import statsmodels.api as sm
 import pandas as pd
+import statsmodels.api as sm
+from matplotlib import pyplot as plt
 
+
+# Dataframe helper functions
 def get_filename_frequency(filename):
     """ Extracts the frequency value of a stimulus from its filename
     """
@@ -17,7 +19,112 @@ def get_filename_frequency(filename):
     except:
         return None
 
-def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton", do_plot=True, **kwargs):
+
+def filter_blocks(blocks):
+
+    for blk in blocks:
+        data = blk.data.copy()
+        frequency = data["Stimulus"].apply(get_filename_frequency)
+        inds = ((frequency >= 900) | (frequency <= 30)) & (data["Class"] == "Probe")
+        data = data[~inds]
+
+        blk.data = data.copy()
+
+    return blocks
+
+
+def get_probe_blocks(blocks):
+
+    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
+
+    return blocks
+
+
+def concatenate_data(blocks):
+    """ Concatenate the data from a list of blocks
+    """
+
+    return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
+
+
+def extract_frequencies(data):
+    """ Get frequency values from a pandas dataframe with a Stimulus column
+    """
+
+    return data["Stimulus"].apply(get_filename_frequency)
+
+
+def get_nonprobe_interruption_rates(data):
+    """ Computes the rewarded class and unrewarded class interruption rates
+    """
+
+    g = data.groupby("Class")
+    r = g.get_group("Rewarded")["Response"]
+    u = g.get_group("Unrewarded")["Response"]
+
+    return float(r.sum()) / r.count(), float(u.sum()) / u.count()
+
+
+# Sampling functions
+def sample_evenly(df, nsamples=None, groupby="Class"):
+    """ Samples evenly nsamples combined points from all groups of groupby
+    :param df: pandas dataframe
+    :param nsamples: total number of samples from all groups
+    :param groupby: column of the dataframe whose groups we want to sample
+
+    returns a pandas dataframe with only the sampled rows
+    """
+
+    grouped = df.groupby(groupby)
+    if nsamples is None:
+        nsamples = min(grouped.count().values)
+    samples_per = int(nsamples / len(grouped))
+    output = pd.concat([g.sample(samples_per) for name, g in grouped])
+
+    return output
+
+
+def sample_mean_probe_count(df):
+    """ Samples each frequency of rewarded and unrewarded stimuli the average number of times that each probe frequency was played.
+    """
+
+    grouped = df.groupby("Class")
+    udf = grouped.get_group("Unrewarded")
+    rdf = grouped.get_group("Rewarded")
+    pdf = grouped.get_group("Probe")
+    mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
+
+    udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
+                    udf.groupby("Frequency").groups.values()])
+    rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
+                    rdf.groupby("Frequency").groups.values()])
+
+    return pd.concat([udf, rdf, pdf]).sort_index()
+
+
+def sample_nonprobe(df, nsamples=None):
+    """Samples nsamples points from the non-probe classes, leaving the probe class intact.
+    :param df: pandas dataframe
+    :param nsamples: number of samples from each non-probe class. Defaults to number of probes
+
+    returns a pandas dataframe with only the sampled rows
+    """
+
+    grouped = df.groupby("Class")
+    if nsamples is None:
+        nsamples = int(grouped.get_group("Probe").count())
+    output = pd.concat([g.sample(nsamples) for name, g in grouped if name != "Probe"])
+    output = pd.concat([output, grouped.get_group("Probe")])
+
+    return output
+
+
+# Analyses
+def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
+                              filename="", nbootstraps=10, method="newton",
+                              do_plot=True,
+                              sample_function=sample_mean_probe_count,
+                              **kwargs):
     """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
     """
 
@@ -32,7 +139,10 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
 
     # Estimate models
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
-    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False, **kwargs) for ii in range(nbootstraps)]
+    models = [model_logistic(data, log=log,
+                             scaled=scaled, method=method, disp=False,
+                             sample_function=sample_function,
+                             **kwargs) for ii in range(nbootstraps)]
 
     # Compute frequency at different points on the logistic
     if fracs is None:
@@ -88,6 +198,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
 
     return models, frac_rates
 
+
 def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filename="", nbootstraps=5):
     """ Estimate the center frequency at each probe trial in blocks.
     """
@@ -129,12 +240,6 @@ def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filen
 
     return cfs
 
-def get_probe_blocks(blocks):
-
-    blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
-
-    return blocks
-
 
 def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, nsamples=100):
     """
@@ -175,69 +280,7 @@ def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, n
     return cfs, models
 
 
-def sample_nonprobe(df, nsamples=None):
-    """Samples nsamples points from the non-probe classes, leaving the probe class intact.
-    :param df: pandas dataframe
-    :param nsamples: number of samples from each non-probe class. Defaults to number of probes
-
-    returns a pandas dataframe with only the sampled rows
-    """
-
-    grouped = df.groupby("Class")
-    if nsamples is None:
-        nsamples = int(grouped.get_group("Probe").count())
-    output = pd.concat([g.sample(nsamples) for name, g in grouped if name != "Probe"])
-    output = pd.concat([output, grouped.get_group("Probe")])
-
-    return output
-
-
-def sample_evenly(df, nsamples=None, groupby="Class"):
-    """ Samples evenly nsamples combined points from all groups of groupby
-    :param df: pandas dataframe
-    :param nsamples: total number of samples from all groups
-    :param groupby: column of the dataframe whose groups we want to sample
-
-    returns a pandas dataframe with only the sampled rows
-    """
-
-    grouped = df.groupby(groupby)
-    if nsamples is None:
-        nsamples = min(grouped.count().values)
-    samples_per = int(nsamples / len(grouped))
-    output = pd.concat([g.sample(samples_per) for name, g in grouped])
-
-    return output
-
-def sample_mean_probe_count(df):
-    """ Samples each frequency of rewarded and unrewarded stimuli the average number of times that each probe frequency was played.
-    """
-
-    grouped = df.groupby("Class")
-    udf = grouped.get_group("Unrewarded")
-    rdf = grouped.get_group("Rewarded")
-    pdf = grouped.get_group("Probe")
-    mean_count = int(np.ceil(np.mean(pdf.groupby("Frequency")["Response"].count())))
-
-    udf = pd.concat([udf.ix[random.sample(val, mean_count)] if len(val) > mean_count else udf.ix[val] for val in
-                    udf.groupby("Frequency").groups.values()])
-    rdf = pd.concat([rdf.ix[random.sample(val, mean_count)] if len(val) > mean_count else rdf.ix[val] for val in
-                    rdf.groupby("Frequency").groups.values()])
-
-    return pd.concat([udf, rdf, pdf]).sort_index()
-
-def concatenate_data(blocks):
-    """ Concatenate the data from a list of blocks
-    """
-
-    return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
-
-def extract_frequencies(data):
-    """ Get frequency values from a pandas dataframe with a Stimulus column
-    """
-
-    return data["Stimulus"].apply(get_filename_frequency)
-
+# Model functions
 def aggregate_models(models, log=True, p_thresh=0.05):
 
     if log:
@@ -265,6 +308,7 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
     return result
 
+
 def model_logistic(data, log=True, scaled=False, sample_function=None, method="bfgs", disp=True):
     """ Compute a logistic or scaled logistic model on the data
     """
@@ -290,15 +334,6 @@ def model_logistic(data, log=True, scaled=False, sample_function=None, method="b
 
     return logit.fit(method=method, disp=disp)
 
-def get_nonprobe_interruption_rates(data):
-    """ Computes the rewarded class and unrewarded class interruption rates
-    """
-
-    g = data.groupby("Class")
-    r = g.get_group("Rewarded")["Response"]
-    u = g.get_group("Unrewarded")["Response"]
-
-    return float(r.sum()) / r.count(), float(u.sum()) / u.count()
 
 def model_predict(models, frequencies, log=True):
     """ Predicts the probability of interruption of a list of frequencies using the model
@@ -315,6 +350,7 @@ def model_predict(models, frequencies, log=True):
         estimates = result.predict(np.vstack([frequencies, np.ones_like(frequencies)]).T)
 
     return estimates
+
 
 def get_frequency_probability(models, prob, log=True, min_val=0, max_val=1):
 
@@ -395,18 +431,8 @@ class ScaledLogit(sm.Logit):
 
         return y * np.log(p) + (1 - y) * np.log(1 - p)
 
-def filter_blocks(blocks):
 
-    for blk in blocks:
-        data = blk.data.copy()
-        frequency = data["Stimulus"].apply(get_filename_frequency)
-        inds = ((frequency >= 900) | (frequency <= 30)) & (data["Class"] == "Probe")
-        data = data[~inds]
-
-        blk.data = data.copy()
-
-    return blocks
-
+# Scripting functions
 def probes(args):
     import os
     from pecking_analysis.objects import get_blocks
