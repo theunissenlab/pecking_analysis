@@ -17,7 +17,7 @@ def get_filename_frequency(filename):
     except:
         return None
 
-def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton", do_plot=True):
+def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filename="", nbootstraps=10, method="newton", do_plot=True, **kwargs):
     """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
     """
 
@@ -32,7 +32,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True, filenam
 
     # Estimate models
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
-    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False) for ii in range(nbootstraps)]
+    models = [model_logistic(data, log=log, scaled=scaled, method=method, disp=False, **kwargs) for ii in range(nbootstraps)]
 
     # Compute frequency at different points on the logistic
     if fracs is None:
@@ -174,7 +174,25 @@ def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, n
 
     return cfs, models
 
-def sample_evenly(df, nsamples=100, groupby="Class"):
+
+def sample_nonprobe(df, nsamples=None):
+    """Samples nsamples points from the non-probe classes, leaving the probe class intact.
+    :param df: pandas dataframe
+    :param nsamples: number of samples from each non-probe class. Defaults to number of probes
+
+    returns a pandas dataframe with only the sampled rows
+    """
+
+    grouped = df.groupby("Class")
+    if nsamples is None:
+        nsamples = int(grouped.get_group("Probe").count())
+    output = pd.concat([g.sample(nsamples) for name, g in grouped if name != "Probe"])
+    output = pd.concat([output, grouped.get_group("Probe")])
+
+    return output
+
+
+def sample_evenly(df, nsamples=None, groupby="Class"):
     """ Samples evenly nsamples combined points from all groups of groupby
     :param df: pandas dataframe
     :param nsamples: total number of samples from all groups
@@ -184,6 +202,8 @@ def sample_evenly(df, nsamples=100, groupby="Class"):
     """
 
     grouped = df.groupby(groupby)
+    if nsamples is None:
+        nsamples = min(grouped.count().values)
     samples_per = int(nsamples / len(grouped))
     output = pd.concat([g.sample(samples_per) for name, g in grouped])
 
@@ -245,7 +265,7 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
     return result
 
-def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, even_sampling=True, method="bfgs", disp=True):
+def model_logistic(data, log=True, scaled=False, sample_function=None, method="bfgs", disp=True):
     """ Compute a logistic or scaled logistic model on the data
     """
 
@@ -258,11 +278,8 @@ def model_logistic(data, log=True, scaled=False, restrict_nonprobe=True, even_sa
     data["Intercept"] = 1.0
 
     # Sample the non-probe stimuli so that they don't get too much emphasis
-    if restrict_nonprobe:
-        if even_sampling:
-            data = sample_evenly(data, len(data[data["Class"] == "Probe"]) * 3)
-        else:
-            data = sample_mean_probe_count(data)
+    if sample_function is not None:
+        data = sample_function(data)
 
     min_val, max_val = get_nonprobe_interruption_rates(data)
 
