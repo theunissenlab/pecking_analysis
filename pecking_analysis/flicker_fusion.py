@@ -241,7 +241,7 @@ def estimate_center_frequency(blocks, log=True, scaled=True, do_plot=True, filen
     return cfs
 
 
-def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, nsamples=100):
+def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, nsamples=100, **kwargs):
     """
     Calculates center frequency (with confidence). Will create models fitting a sigmoid predicting the birds response to a given frequency.
     Multiple models will used to calculate a confidence interval for the calculated center frequencies.
@@ -264,7 +264,7 @@ def bootstrap_center_frequency(blocks, log=True, scaled=True, nbootstraps=100, n
     for bootstrap in range(nbootstraps):
 
         fit_data = sample_evenly(data, nsamples=nsamples)
-        res = model_logistic(fit_data, log=log, scaled=scaled, disp=False)
+        res = model_logistic(fit_data, log=log, scaled=scaled, disp=False, **kwargs)
         print("Bootstrap %d of %d: model p-value was %1.2e" %(bootstrap, nbootstraps, res.llr_pvalue))
         ri, ui = get_nonprobe_interruption_rates(fit_data)
         try:
