@@ -138,7 +138,7 @@ class Block(object):
                 print("Only .h5 files are currently supported")
 
         if self.store is not None:
-            return self.store.save_block(overwrite=overwrite)
+            return self.store.save_block(self, overwrite=overwrite)
         else:
             return False
 
@@ -151,9 +151,9 @@ class Block(object):
         :return: a Block instance
         """
 
-        if isinstance(filename, str):
-            if filename.endswith((".h5", ".hdf5", ".hdf")):
-                store = HDF5Store.load_block(filename)
+        if isinstance(store, str):
+            if store.endswith((".h5", ".hdf5", ".hdf")):
+                store = HDF5Store(store)
             else:
                 print("Only .h5 files are currently supported")
                 return
@@ -277,12 +277,12 @@ class HDF5Store(object):
                 g.attrs[key] = or_none(val)
 
         # Store the data using pandas built-in to_hdf method
-        block.data.to_hdf(filename, group_name + "/data")
+        block.data.to_hdf(self.filename, group_name + "/data")
 
         # Records of which data is where in the file are kept in a table called "values" at the root of the file
         # Load that table if it exists
         try:
-            values = pd.read_hdf(filename, "/values")
+            values = pd.read_hdf(self.filename, "/values")
         except KeyError:
             values = None
 
@@ -293,7 +293,7 @@ class HDF5Store(object):
                                "Path": str(group_name)},
                                index=[0])
             df = df.set_index("Timestamp")
-            df.to_hdf(filename, "/values", format="table", append=True)
+            df.to_hdf(self.filename, "/values", format="table", append=True)
 
         return True
 
@@ -306,10 +306,10 @@ class HDF5Store(object):
         or_none = lambda val: val if (not isinstance(val, str) or (val != "none")) else None
 
         # Load the data
-        data = pd.read_hdf(filename, path + "/data")
+        data = pd.read_hdf(self.filename, path + "/data")
 
-        # Load the annotations and top-level attributes
-        with h5py.File(filename, "r") as hf:
+        # Load the annotatons and top-level attributes
+        with h5py.File(self.filename, "r") as hf:
             g = hf.get(path)
             annotations = dict(g.attrs.items())
             name = annotations.pop("name")
@@ -336,7 +336,7 @@ class HDF5Store(object):
         if block.start is None:
             ValueError("Cannot save to hdf5 file when block.start is None")
 
-        return "/".join([block.name, block.date.strftime("%d%m%Y"), block.start.strftime("%H%M%S")])
+        return "/" + "/".join([block.name, block.date.strftime("%d%m%Y"), block.start.strftime("%H%M%S")])
 
     @staticmethod
     def _create_group_recursive(hf, group_name, overwrite):
@@ -344,6 +344,8 @@ class HDF5Store(object):
         group = hf
         group_names = group_name.split("/")
         for ii, group_name in enumerate(group_names):
+            if group_name == "":
+                continue
             if group_name in group:
                 if ii == (len(group_names) - 1):
                     if overwrite:
@@ -351,7 +353,7 @@ class HDF5Store(object):
                         del group[group_name]
                     else:
                         raise IOError("Block %s has already been imported into %s. To overwrite add overwrite=True" %
-                                      (block, hf.filename))
+                                      (group_name, hf.filename))
                 else:
                     group = group[group_name]
                     continue
@@ -361,7 +363,19 @@ class HDF5Store(object):
         return group
 
 
-def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None, ):
+def plot_interruption_rates(blocks):
+
+    df = pd.DataFrame()
+    for blk in blocks:
+        if len(blk.data) > 0:
+            df[blk.date] = blk.data.groupby("Class")["Response"].mean()
+    df = df.T.sort_index()
+
+    df.plot()
+    plt.title(blocks[0].name)
+
+
+def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
     """
     Get all blocks from the hdf5 file filename that match certain criteria
     :param filename: An hdf5 file
@@ -379,6 +393,7 @@ def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None, 
     paths = df["Path"].values
 
     return [Block.load(filename, path) for path in paths]
+
 
 def filter_blocks(blocks, **kwargs):
     """ Filter the list of blocks using the key-value pairs in kwargs
@@ -404,6 +419,7 @@ def filter_blocks(blocks, **kwargs):
             results.append(blk)
 
     return results
+
 
 def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=None, **kwargs):
     """
@@ -432,6 +448,7 @@ def filter_block_metadata(df, date=None, start_date=None, end_date=None, birds=N
 
     return df
 
+
 def summarize_file(filename, date=None, start_date=None, end_date=None, birds=None):
     """
     Summarize the data stored in the filename that match certain criteria
@@ -446,7 +463,8 @@ def summarize_file(filename, date=None, start_date=None, end_date=None, birds=No
     df = filter_block_metadata(df, date=date, start_date=start_date,
                                end_date=end_date, birds=birds)
     df = df.rename(columns={"Path": "File count"})
-    print(df.groupby("Name").count())
+    return df.groupby("Name").count()
+
 
 def export_csvs(args):
     from pecking_analysis.utils import get_csv, convert_date
@@ -462,11 +480,12 @@ def export_csvs(args):
     for blk in blocks:
         blk.save(args.filename, args.overwrite)
 
+
 if __name__ == "__main__":
     import sys
     import argparse
 
-    h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
+    h5_file = os.path.abspath(os.path.expanduser("~/data/flicker_fusion.h5"))
     parser = argparse.ArgumentParser(description="Export CSV files to h5 file")
     parser.add_argument("-d", "--date", dest="date", help="Date in the format of DD-MM-YY (e.g. 14-12-15) or one of \"today\" or \"yesterday\"")
     parser.add_argument("-b", "--bird", dest="bird", help="Name of bird to check. If not specified, checks all birds for the specified date")
