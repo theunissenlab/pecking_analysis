@@ -84,48 +84,46 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
     output = pd.DataFrame()
     for blk in blocks:
 
-        if (blk.data is None) or (len(blk.data) == 0):
-            continue
-
         total_pecks = total_group1 = total_group2 = total_feeds = \
         percent_group1 = percent_group2 = interrupt_group1 = \
-        interrupt_group2 = 0
+        interrupt_group2 = z_score = binomial_pvalue = np.nan
 
-        data = blk.data.copy()
-        results = dict()
+        if (blk.data is not None) and (len(blk.data) > 0):
+            data = blk.data.copy()
+            results = dict()
 
-        # Get peck information
-        total_pecks = len(blk.data)
-        total_feeds = blk.data["Reward"].sum()
-        total_responses = blk.data["Response"].sum()
+            # Get peck information
+            total_pecks = len(blk.data)
+            total_feeds = blk.data["Reward"].sum()
+            total_responses = blk.data["Response"].sum()
 
-        # Collect group statistics
-        if total_pecks > 0:
-            percent_interrupt = total_responses / total_pecks
+            # Collect group statistics
+            if total_pecks > 0:
+                percent_interrupt = total_responses / total_pecks
 
-            group1_data = blk.data[blk.data["Class"] == group1]
-            total_group1 = len(group1_data)
-            percent_group1 = total_group1 / total_pecks
-            if total_group1 > 0:
-                interrupt_group1 = group1_data["Response"].sum() / total_group1
+                group1_data = blk.data[blk.data["Class"] == group1]
+                total_group1 = len(group1_data)
+                percent_group1 = total_group1 / total_pecks
+                if total_group1 > 0:
+                    interrupt_group1 = group1_data["Response"].sum() / total_group1
 
-            group2_data = blk.data[blk.data["Class"] == group2]
-            total_group2 = len(group2_data)
-            percent_group2 = total_group2 / total_pecks
-            if total_group2 > 0:
-                interrupt_group2 = group2_data["Response"].sum() / total_group2
+                group2_data = blk.data[blk.data["Class"] == group2]
+                total_group2 = len(group2_data)
+                percent_group2 = total_group2 / total_pecks
+                if total_group2 > 0:
+                    interrupt_group2 = group2_data["Response"].sum() / total_group2
 
-        # Compare the two groups
-        if (total_group1 > 0) and (total_group2 > 0):
-            mu = (interrupt_group2 - interrupt_group1)
-            sigma = np.sqrt(percent_interrupt * (1 - percent_interrupt) * (1 / total_group1 + 1 / total_group2))
-            zscore = mu / sigma
-            binomial_pvalue = 2 * (1 - scipy.stats.norm.cdf(np.abs(zscore)))
-            is_significant = binomial_pvalue <= 0.05
-        else:
-            zscore = 0.0
-            binomial_pvalue = 1.0
-            is_significant = False
+            # Compare the two groups
+            if (total_group1 > 0) and (total_group2 > 0):
+                mu = (interrupt_group2 - interrupt_group1)
+                sigma = np.sqrt(percent_interrupt * (1 - percent_interrupt) * (1 / total_group1 + 1 / total_group2))
+                zscore = mu / sigma
+                binomial_pvalue = 2 * (1 - scipy.stats.norm.cdf(np.abs(zscore)))
+                is_significant = binomial_pvalue <= 0.05
+            else:
+                zscore = 0.0
+                binomial_pvalue = 1.0
+                is_significant = False
 
         results[("Total", group1)] = total_group1
         results[("Total", "Trials")] = total_pecks
@@ -145,10 +143,9 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
         results["Time"] = str(getattr(blk, "start", None))
         results = results.set_index(["Bird", "Date", "Time"])
 
-        output = pd.concat([results, output])
+        output = pd.concat([output, results])
 
-    output = output.sort_index()
-    print(output.to_string(float_format=lambda x: str(round(x, 3)), justify="left"))
+    print(output.sort_index().to_string(float_format=lambda x: str(round(x, 3)), justify="left"))
 
     return output
 

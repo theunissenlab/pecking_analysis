@@ -373,6 +373,7 @@ def plot_interruption_rates(blocks):
 
     df.plot()
     plt.title(blocks[0].name)
+    plt.ylim((0.0, 1.0))
 
 
 def get_blocks(filename, date=None, start_date=None, end_date=None, birds=None):
@@ -463,7 +464,7 @@ def summarize_file(filename, date=None, start_date=None, end_date=None, birds=No
     df = filter_block_metadata(df, date=date, start_date=start_date,
                                end_date=end_date, birds=birds)
     df = df.rename(columns={"Path": "File count"})
-    return df.groupby("Name").count()
+    return df.groupby("Name").count().sort("File count", ascending=False)
 
 
 def export_csvs(args):

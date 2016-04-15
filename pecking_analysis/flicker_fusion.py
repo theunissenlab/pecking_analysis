@@ -4,6 +4,7 @@ import random
 import copy
 import numpy as np
 import pandas as pd
+import scipy
 import statsmodels.api as sm
 from matplotlib import pyplot as plt
 
@@ -34,6 +35,7 @@ def filter_blocks(blocks):
 
 
 def get_probe_blocks(blocks):
+    """ Returns only the blocks that contain probe trials """
 
     blocks = [blk for blk in blocks if "Probe" in blk.data["Class"].unique()]
 
@@ -52,6 +54,100 @@ def extract_frequencies(data):
     """
 
     return data["Stimulus"].apply(get_filename_frequency)
+
+
+def get_binomial_probability(blocks, nsamples=50, nbins=10, log_space=False):
+    """ Get the probability of any interruption rate for all probe trials across frequencies """
+
+    from matplotlib.mlab import griddata
+
+    print("Filtering to probe blocks")
+    blocks = get_probe_blocks(blocks)
+    print("Found %d blocks" % len(blocks))
+    df = concatenate_data(blocks)
+    df["Frequency"] = extract_frequencies(df)
+    if log_space is True:
+        print("Using log frequencies")
+        df["Frequency"] = df["Frequency"].apply(np.log10)
+    df = df[df["Class"] == "Probe"].sort("Frequency")
+
+    frequencies = np.linspace(df["Frequency"].min(), df["Frequency"].max(), nbins)
+    round_freq = lambda f: frequencies[np.argmin(np.abs(frequencies - f))]
+
+    # data_by_freq = dict()
+    # for ii in range(len(df) - nsamples):
+    #     data = df.iloc[ii: ii + nsamples]
+    #     freq = data["Frequency"].median()
+    #     data_by_freq.setdefault(freq, list()).append(data["Response"].sum())
+    #
+    # frequencies = sorted(data_by_freq.keys())
+    #
+    # print("Computing probability on %d data points in %d frequencies" % (len(df) - nsamples, len(data_by_freq.keys())))
+    #
+    p_values = np.arange(0, 1, .01)
+    grouped = df.groupby(map(round_freq, df["Frequency"]))
+    frequencies = sorted(grouped.groups.keys())
+    data = pd.DataFrame([], columns=p_values, index=frequencies)
+    print("Computing posterior probability for binomial distribution with different interruption probabilities")
+    # for freq in frequencies:
+    for freq, g in grouped:
+        prob = list()
+        # count = data_by_freq[freq]
+        count = g["Response"].sum()
+        nsamples = g["Response"].count()
+        prob = [scipy.stats.binom.pmf(count, nsamples, p) for p in p_values]
+        data.loc[freq] = np.array(prob) / sum(prob)
+
+    if log_space is True:
+        print("Converting back to linear frequencies")
+        data = data.reset_index()
+        data["index"] = data["index"].apply(lambda x: 10 ** x)
+        data = data.set_index("index")
+
+    frequencies = data.index.values
+    p_values = data.columns.values
+
+    # Tile and interpolate
+    data = data.values.astype(np.float)
+    frequencies = np.tile(frequencies.reshape((-1, 1)), (1, data.shape[1]))
+    p_values = np.tile(p_values.reshape((1, -1)), (data.shape[0], 1))
+
+    extent = [np.min(frequencies), np.max(frequencies),
+              np.min(p_values), np.max(p_values)]
+    xs, ys = np.mgrid[extent[0]: extent[1]: complex(0, 5 * data.shape[0]),
+                      extent[2]: extent[3]: complex(0, 5 * data.shape[1])]
+    zs = griddata(frequencies.ravel(), p_values.ravel(), data.ravel(),
+                  xs, ys, interp="linear")
+
+
+    return xs, ys, zs
+
+
+def get_probe_frequencies(blocks):
+    """ Gets the frequencies for the probe stimuli across blocks """
+
+    probe_blocks = get_probe_blocks(blocks)
+    if len(probe_blocks) == 0:
+        return
+
+    freqs = pd.DataFrame([], index=["20%", "35%", "50%", "65%", "80%"])
+    for blk in probe_blocks:
+        df = blk.data.copy()
+        df["Freq"] = df["Stimulus"].apply(get_filename_frequency)
+        tmp = np.unique(df[df["Class"] == "Probe"]["Freq"].values)
+        vals = np.nan * np.zeros(5)
+        # If highest frequency is above 500, probably the top frequency was too high to be used
+        # If the lowest is below 50, then probably the bottom frequency was too low to be used.
+        if (len(tmp) < 5) and (tmp.min() <= 50):
+            start = 1
+        else:
+            start = 0
+        vals[start: start + len(tmp)] = tmp
+        freqs[blk.date] = vals
+
+    freqs = freqs.T.sort_index()
+
+    return freqs
 
 
 def get_nonprobe_interruption_rates(data):
@@ -122,7 +218,7 @@ def sample_nonprobe(df, nsamples=None):
 # Analyses
 def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
                               filename="", nbootstraps=10, method="newton",
-                              do_plot=True,
+                              do_plot=True, maxiter=50,
                               sample_function=sample_mean_probe_count,
                               **kwargs):
     """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
@@ -141,7 +237,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
     models = [model_logistic(data, log=log,
                              scaled=scaled, method=method, disp=False,
-                             sample_function=sample_function,
+                             sample_function=sample_function, maxiter=maxiter,
                              **kwargs) for ii in range(nbootstraps)]
 
     # Compute frequency at different points on the logistic
@@ -309,7 +405,8 @@ def aggregate_models(models, log=True, p_thresh=0.05):
     return result
 
 
-def model_logistic(data, log=True, scaled=False, sample_function=None, method="bfgs", disp=True):
+def model_logistic(data, log=True, scaled=False, sample_function=None,
+                   method="bfgs", disp=True, **kwargs):
     """ Compute a logistic or scaled logistic model on the data
     """
 
@@ -325,14 +422,16 @@ def model_logistic(data, log=True, scaled=False, sample_function=None, method="b
     if sample_function is not None:
         data = sample_function(data)
 
-    min_val, max_val = get_nonprobe_interruption_rates(data)
-
     if scaled:
-        logit = ScaledLogit(data["Response"], data[[freq_name, "Intercept"]], min_val=min_val, max_val=max_val)
+        min_val, max_val = get_nonprobe_interruption_rates(data)
     else:
-        logit = sm.Logit(data["Response"], data[[freq_name, "Intercept"]])
+        min_val = 0.0
+        max_val = 1.0
 
-    return logit.fit(method=method, disp=disp)
+    logit = ScaledLogit(data["Response"], data[[freq_name, "Intercept"]],
+                        min_val=min_val, max_val=max_val)
+
+    return logit.fit(method=method, disp=disp, **kwargs)
 
 
 def model_predict(models, frequencies, log=True):
