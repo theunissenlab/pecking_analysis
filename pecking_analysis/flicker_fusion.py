@@ -41,12 +41,31 @@ def get_probe_blocks(blocks):
 
     return blocks
 
+def add_daily_interruption(data):
+
+    grouped = data.groupby("Session")
+    for session_id, inds in grouped.groups.items():
+        ri, ui = get_nonprobe_interruption_rates(data.iloc[inds])
+        data.ix[inds, "Min"] = ri
+        data.ix[inds, "Max"] = ui
+
+    return data
 
 def concatenate_data(blocks):
     """ Concatenate the data from a list of blocks
     """
-
-    return pd.concat([blk.data.copy() for blk in blocks], ignore_index=True)
+    data = list()
+    sessions = dict()
+    current = 0
+    for blk in blocks:
+        if blk.date not in sessions:
+            sessions[blk.date] = current
+            current += 1
+        num = sessions[blk.date]
+        tmp = blk.data.copy()
+        tmp["Session"] = num
+        data.append(tmp)
+    return pd.concat(data, ignore_index=True)
 
 
 def extract_frequencies(data):
@@ -56,22 +75,33 @@ def extract_frequencies(data):
     return data["Stimulus"].apply(get_filename_frequency)
 
 
-def get_binomial_probability(blocks, nsamples=50, nbins=10, log_space=False):
+def get_binomial_probability(blocks, nsamples=50, frequencies=None, nbins=10,
+                             log_space=False):
     """ Get the probability of any interruption rate for all probe trials across frequencies """
 
     from matplotlib.mlab import griddata
 
     print("Filtering to probe blocks")
     blocks = get_probe_blocks(blocks)
+
     print("Found %d blocks" % len(blocks))
+    if len(blocks) == 0:
+        return
+
+    # Remove any trials outside of the 10-1000 Hz range
+    blocks = filter_blocks(blocks)
     df = concatenate_data(blocks)
     df["Frequency"] = extract_frequencies(df)
     if log_space is True:
         print("Using log frequencies")
         df["Frequency"] = df["Frequency"].apply(np.log10)
-    df = df[df["Class"] == "Probe"].sort("Frequency")
+        if frequencies is not None:
+            frequencies = np.log10(frequencies)
+    # df = df[df["Class"] == "Probe"].sort("Frequency")
+    df = df.sort("Frequency")
 
-    frequencies = np.linspace(df["Frequency"].min(), df["Frequency"].max(), nbins)
+    if frequencies is None:
+        frequencies = np.linspace(df["Frequency"].min(), df["Frequency"].max(), nbins)
     round_freq = lambda f: frequencies[np.argmin(np.abs(frequencies - f))]
 
     # data_by_freq = dict()
@@ -217,67 +247,66 @@ def sample_nonprobe(df, nsamples=None):
 
 # Analyses
 def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
-                              filename="", nbootstraps=10, method="newton",
+                              filename="", nbootstraps=10,
                               do_plot=True, maxiter=50,
                               sample_function=sample_mean_probe_count,
+                              global_interruption=True,
+                              daily_interruption=True,
                               **kwargs):
     """ Computes multiple models of the concatenated data from blocks and optionally plots the fit
     """
 
     # Extract and concatenate data
-    data = pd.DataFrame()
-    for ii, blk in enumerate(blocks):
-        freq_df = blk.data.copy()
-        if "Frequency" not in freq_df.columns:
-            freq_df["Frequency"] = freq_df["Stimulus"].apply(get_filename_frequency)
-        freq_df["Response"] = blk.data["Response"]
-        data = data.append(freq_df[["Frequency", "Response", "Class"]])
+    data = concatenate_data(blocks)
+    data["Frequency"] = extract_frequencies(data)
 
     # Estimate models
     reward_rate, unreward_rate = get_nonprobe_interruption_rates(data)
     models = [model_logistic(data, log=log,
-                             scaled=scaled, method=method, disp=False,
+                             scaled=scaled, disp=False,
                              sample_function=sample_function, maxiter=maxiter,
+                             global_interruption=global_interruption,
+                             daily_interruption=daily_interruption,
                              **kwargs) for ii in range(nbootstraps)]
-
+    model = aggregate_models(models, log=log)
     # Compute frequency at different points on the logistic
     if fracs is None:
         fracs = [0.2, 0.35, 0.5, 0.65, 0.8]
     frac_rates = list()
     for frac in fracs:
-        r = get_frequency_probability(models, frac, log=log, min_val=reward_rate, max_val=unreward_rate)
+        # Move to get the interruption rate as percentage between min and max rates. This is better in the case of using daily interruption rates for max and min.
+        r = get_frequency_probability(model, frac, log=log, min_val=0.0,
+                                      max_val=1.0)
         frac_rates.append(r)
     print(", ".join(["p = %0.2f) %4.2f (Hz)" % (f, fr) for f, fr in zip(fracs, frac_rates)]))
 
     if do_plot:
+        # xs, ys, zs = get_binomial_probability(blocks, frequencies=frac_rates,
+                                            #   log_space=log, limits=None)
         bins = np.array([30, 50, 80, 120, 170, 230, 300, 380, 470, 570, 700, 900, 1000])
-        bin_freqs = lambda freq: bins[np.nonzero(np.ceil(float(freq) / bins) == 1)[0][0]]
-        data["FreqGroup"] = data["Frequency"].apply(bin_freqs)
-
+        round_freq = lambda f: frac_rates[np.argmin(np.abs(frac_rates - f))]
         # Get raw data for binned frequencies
-        grouped = data.groupby("FreqGroup")
+        grouped = data.groupby(map(round_freq, data["Frequency"]))
         # grouped = data.groupby("Frequency")
-        m = grouped.mean()["Response"]
+        m = grouped["Response"].mean()
         freqs = m.index.values.astype(float)
         m = m.values
-
-        est_freqs = np.arange(10, 1000, 10)
-        r_ests = model_predict(models, est_freqs, log=log)
+        r_ests = model_predict(model, freqs, log=log)
 
         fig = plt.figure(figsize=(6, 6), facecolor="white", edgecolor="white")
         ax = fig.add_subplot(111)
         ax.plot(freqs, m, color="b", linewidth=2)
-        ax.plot(est_freqs, r_ests, color="r", linewidth=2)
+        ax.plot(freqs, r_ests, color="r", linewidth=2)
 
         ax.plot(freqs, reward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
         ax.plot(freqs, unreward_rate * np.ones_like(freqs), linewidth=0.5, color=[0.3, 0.3, 0.3], linestyle="--")
 
         ymin, ymax = ax.get_ylim()
-        for frac, fr in zip(fracs, frac_rates):
-            ax.plot(freqs, (reward_rate + (unreward_rate -reward_rate) * frac) * np.ones_like(freqs), linewidth=0.5, color=[0.7, 0.7, 0.7],
-                    linestyle="--")
-            ax.plot([fr, fr], [ymin, ymax], linewidth=0.5, color=[0.7, 0.7, 0.7],
-                    linestyle="--")
+        # for frac, fr in zip(fracs, frac_rates):
+        #     ax.plot(freqs, (reward_rate + (unreward_rate -reward_rate) * frac) * np.ones_like(freqs), linewidth=0.5, color=[0.7, 0.7, 0.7],
+        #             linestyle="--")
+        #     ax.plot([fr, fr], [ymin, ymax], linewidth=0.5, color=[0.7, 0.7, 0.7],
+        #             linestyle="--")
 
         ax.set_title(blocks[0].name)
         ax.xaxis.set_ticks_position("bottom")
@@ -389,14 +418,15 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
     result = models[0]
     if isinstance(result.model, ScaledLogit):
-        min_vals, max_vals = zip(*[(res.model.min_val, res.model.max_val) for res in models])
+        min_vals = np.vstack([res.model.min_val for res in models])
+        max_vals = np.vstack([res.model.max_val for res in models])
         result.model.min_val = np.mean(min_vals)
         result.model.max_val = np.mean(max_vals)
 
-    try:
-        slopes, intercepts = zip(*[(res.params[varname], res.params["Intercept"]) for res in models if res.llr_pvalue
-                                   <= p_thresh])
-    except ValueError: # No models were significantly better than the null
+    tmp = [(res.params[varname], res.params["Intercept"]) for res in models if res.llr_pvalue <= p_thresh]
+    if len(tmp) > 0:
+        slopes, intercepts = zip(*tmp)
+    else:
         raise ValueError("0 of %d models were significant" % len(models))
 
     result.params["Intercept"] = np.mean(intercepts)
@@ -406,7 +436,8 @@ def aggregate_models(models, log=True, p_thresh=0.05):
 
 
 def model_logistic(data, log=True, scaled=False, sample_function=None,
-                   method="bfgs", disp=True, **kwargs):
+                   method="newton", disp=True, global_interruption=True,
+                   daily_interruption=True, **kwargs):
     """ Compute a logistic or scaled logistic model on the data
     """
 
@@ -418,12 +449,31 @@ def model_logistic(data, log=True, scaled=False, sample_function=None,
         freq_name = "Frequency"
     data["Intercept"] = 1.0
 
+    if global_interruption:
+        if daily_interruption:
+            grouped = data.groupby("Session")
+            for session_id, inds in grouped.groups.items():
+                ri, ui = get_nonprobe_interruption_rates(data.iloc[inds])
+                data.ix[inds, "Min"] = ri
+                data.ix[inds, "Max"] = ui
+        else:
+            ri, ui = get_nonprobe_interruption_rates(data)
+            data["Min"] = ri
+            data["Max"] = ui
+
     # Sample the non-probe stimuli so that they don't get too much emphasis
     if sample_function is not None:
-        data = sample_function(data)
+        sampled_data = sample_function(data)
+        if not global_interruption:
+            ri, ui = get_nonprobe_interruption_rates(sampled_data)
+            sampled_data["Min"] = ri
+            sampled_data["Max"] = ui
+    else:
+        sampled_data = data
 
     if scaled:
-        min_val, max_val = get_nonprobe_interruption_rates(data)
+        min_val = data["Min"].values
+        max_val = data["Max"].values
     else:
         min_val = 0.0
         max_val = 1.0

@@ -4,6 +4,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from pecking_analysis import peck_data
 
 class Block(object):
     '''
@@ -361,6 +362,21 @@ class HDF5Store(object):
             group = group.create_group(group_name)
 
         return group
+
+
+def summarize_blocks(blocks):
+    """ Get the number of blocks and the number of pecks per block """
+
+    blocks = [blk for blk in blocks if len(blk.data) > 0]
+    performance = peck_data.peck_data(blocks).reset_index()
+    grouped = performance.groupby("Bird")
+    birds = grouped.groups.keys()
+    summary = pd.DataFrame([], columns=["Blocks", "Pecks"], index=birds)
+    for bird, group in grouped:
+        summary.loc[bird]["Blocks"] = len(group)
+        summary.loc[bird]["Pecks"] = group["Total"]["Trials"].mean()
+
+    return summary.sort_index()
 
 
 def plot_interruption_rates(blocks):
