@@ -377,7 +377,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
         ax.xaxis.set_ticks_position("bottom")
         ax.yaxis.set_ticks_position("left")
         ax.yaxis.set_ticks([0, 0.2, 0.35, 0.5, 0.65, 0.8, 1.0])
-        ax.yaxis.set_ticklabels(["Nonreward", "", "", "0.5", "", "", "Reward"])
+        ax.yaxis.set_ticklabels(["Rewarded", "", "", "0.5", "", "", "Nonrewarded"])
         for sp in ["top", "right"]:
             ax.spines[sp].set_visible(False)
 
