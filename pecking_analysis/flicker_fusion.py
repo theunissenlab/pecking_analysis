@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import scipy
 import statsmodels.api as sm
+from scipy.stats import norm
 from matplotlib import pyplot as plt
 
 
@@ -254,13 +255,34 @@ def sample_only_probe(df, nsamples=None):
 
     return df
 
+def nearest_neighbor_gaussian_weights(frequencies, nstd=1):
 
+    freq_dict = dict()
+    for freq in frequencies:
+        freq_dict.setdefault(freq, 0)
+        freq_dict[freq] += 1
+
+    unique_values = np.array(sorted(freq_dict.keys()))
+    diff_values = np.zeros_like(unique_values)
+    diff_values[0] = unique_values[1] - unique_values[0]
+    diff_values[-1] = unique_values[-1] - unique_values[-2]
+    diff_values[1:-1] = np.minimum(unique_values[2:] - unique_values[1:-1],
+                                   unique_values[1:-1] - unique_values[:-2])
+    gaussians = dict((freq, norm(loc=freq, scale=(nstd * dv)).pdf(unique_values)) for freq, dv in zip(unique_values, diff_values))
+
+    weights = np.zeros_like(unique_values, dtype="float64")
+    for freq, gauss_values in gaussians.items():
+        weights += freq_dict[freq] * gauss_values
+    weights = dict((freq, w) for freq, w in zip(unique_values, weights))
+
+    return 1. / np.array([weights[freq] for freq in frequencies])
 
 # Analyses
 def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
                               filename="", nbootstraps=10,
                               do_plot=True, maxiter=50,
                               sample_function=sample_mean_probe_count,
+                              weighted=False,
                               global_interruption=True,
                               daily_interruption=True,
                               binned=True,
@@ -281,7 +303,7 @@ def get_response_by_frequency(blocks, log=True, fracs=None, scaled=True,
     # Estimate models
     print("Estimating models")
     models = [model_logistic(data, log=log,
-                             scaled=scaled, disp=False,
+                             scaled=scaled, disp=False, weighted=weighted,
                              sample_function=sample_function, maxiter=maxiter,
                              global_interruption=global_interruption,
                              daily_interruption=daily_interruption,
@@ -509,9 +531,10 @@ def aggregate_models(models, log=True, p_thresh=0.05):
     return result
 
 
-def model_logistic(data, log=True, scaled=False, sample_function=None,
+def model_logistic(data, log=True, scaled=True, sample_function=None,
                    method="newton", disp=True, global_interruption=True,
-                   daily_interruption=True, shuffle=False, **kwargs):
+                   daily_interruption=True, shuffle=False, weighted=False,
+                   **kwargs):
     """ Compute a logistic or scaled logistic model on the data
     """
 
@@ -548,8 +571,13 @@ def model_logistic(data, log=True, scaled=False, sample_function=None,
         min_val = 0.0
         max_val = 1.0
 
+    if weighted:
+        weights = nearest_neighbor_gaussian_weights(data[freq_name])
+    else:
+        weights = 1.0
+
     logit = ScaledLogit(data["Response"], data[[freq_name, "Intercept"]],
-                        min_val=min_val, max_val=max_val)
+                        min_val=min_val, max_val=max_val, weights=weights)
 
     return logit.fit(method=method, disp=disp, **kwargs)
 
@@ -593,22 +621,78 @@ def get_frequency_probability(res, prob, log=True, min_val=0, max_val=1):
 
 class ScaledLogit(sm.Logit):
 
-    def __init__(self, endog, exog=None, min_val=0, max_val=1, **kwargs):
+    def __init__(self, endog, exog=None, min_val=0, max_val=1, weights=1.,
+                 **kwargs):
 
-        super(ScaledLogit, self).__init__(endog, exog=exog, **kwargs)
+        weights = np.array(weights)
+        # if weights.shape == ():
+        #     if (missing == 'drop' and 'missing_idx' in kwargs and
+        #             kwargs['missing_idx'] is not None):
+        #         # patsy may have truncated endog
+        #         weights = np.repeat(weights, len(kwargs['missing_idx']))
+        #     else:
+        #         weights = np.repeat(weights, len(endog))
+        # handle case that endog might be of len == 1
+        if len(weights) == 1:
+            weights = np.array([weights.squeeze()])
+        else:
+            weights = weights.squeeze()
+        super(ScaledLogit, self).__init__(endog, exog=exog, weights=weights,
+                                          **kwargs)
 
         self.min_val = min_val
         self.max_val = max_val
+        
+        self.endog = self.endog.reshape((-1, 1))
+        if isinstance(min_val, np.ndarray):
+            self.min_val = self.min_val.reshape((-1, 1))
+            self.max_val = self.max_val.reshape((-1, 1))
+
+
+        nobs = self.exog.shape[0]
+        weights = self.weights
+        # Experimental normalization of weights
+        weights = weights / np.sum(weights) * nobs
+        if weights.size != nobs and weights.shape[0] != nobs:
+            raise ValueError('Weights must be scalar or same length as design')
 
     def _logit(self, X):
 
         X = np.asarray(X)
         return (1. / (1 + np.exp(-X)))
 
+    def _logit_grad(self, p):
+
+        return (1 - p) * p * self.exog
+
+    def _logit_hess(self, p):
+
+        pass
+
+    def _scaled(self, p):
+
+        return self.min_val + (self.max_val - self.min_val) * p
+
+    def _scaled_grad(self):
+
+        return (self.max_val - self.min_val)
+
+    def _scaled_hess(self):
+
+        return (self.max_val - self.min_val)
+
+    def _loglike_grad(self, p):
+
+        return (self.endog - p) / (p * (1 - p))
+
+    def _loglike_hess(self, p, g):
+
+        return g * (2 * p * self.endog - p ** 2 - self.endog) / (p ** 2 * (1 - p) ** 2)
+
     def cdf(self, X):
 
         X = np.asarray(X)
-        return self.min_val + (self.max_val - self.min_val) * self._logit(X)
+        return self._scaled(self._logit(X))
 
     def pdf(self, X):
 
@@ -617,16 +701,42 @@ class ScaledLogit(sm.Logit):
 
     def score(self, params):
 
+        # # Forward pass
+        # p = self._logit(np.dot(self.exog, params).reshape((-1, 1)))
+        # scaled_p = self._scaled(p)
+        #
+        # # Backwards pass
+        # g1 = self._loglike_grad(scaled_p)
+        # g2 = self._scaled_grad()
+        # g3 = self._logit_grad(p)
+        #
+        # return np.dot(self.weights, g1 * g2 * g3)
         y = self.endog
         X = self.exog
+        w = self.weights
         p = self.cdf(np.dot(X, params))
 
-        return np.dot((y - p) * (p - self.min_val) * (self.max_val - p) / (p * (1 - p)), X)
+        return np.dot(w * (y - p) * (p - self.min_val) * (self.max_val - p) / (p * (1 - p)), X)
 
     def hessian(self, params):
 
+        # # Forward pass
+        # p = self._logit(np.dot(self.exog, params))
+        # scaled_p = self._scaled(p)
+        #
+        # # Backwards pass
+        # g1 = self._loglike_grad(scaled_p)
+        # g2 = self._scaled_grad()
+        # g3 = self._logit_grad(p)
+        # h1 = self._loglike_hess(scaled_p, g2 * g3)
+        # h2 = self._scaled_hess()
+        # h3 = self._logit_hess(p)
+        #
+        # return np.sum(self.weights * ((h1 * g2 * g3) + (g1 * h2 * g3) + (g1 * g2 * h3)), axis=1)
+
         y = self.endog
         X = self.exog
+        w = self.weights
         b = self.max_val - self.min_val
         p = self.cdf(np.dot(X, params))
         l = self._logit(np.dot(X, params))
@@ -634,15 +744,16 @@ class ScaledLogit(sm.Logit):
         d = (p - self.min_val) * (self.max_val - p) * (g * p * (1 - p) - (y - p) * (2 * p - 1) * (p - self.min_val) *
                                                        (self.max_val - p)) / (p * (1 - p)) ** 2
 
-        return -np.dot(d * X.T, X)
+        return -np.dot(self.weights * d * X.T, X)
 
     def loglike(self, params):
 
         y = self.endog
         X = self.exog
+        w = self.weights
         p = self.cdf(np.dot(X, params))
 
-        return np.sum(y * np.log(p) + (1 - y) * np.log(1 - p))
+        return np.sum(w * (y * np.log(p) + (1 - y) * np.log(1 - p)))
 
     def loglikeobs(self, params):
 
@@ -650,7 +761,7 @@ class ScaledLogit(sm.Logit):
         X = self.exog
         p = self.cdf(np.dot(X, params))
 
-        return y * np.log(p) + (1 - y) * np.log(1 - p)
+        return w * (y * np.log(p) + (1 - y) * np.log(1 - p))
 
 
 # Scripting functions
