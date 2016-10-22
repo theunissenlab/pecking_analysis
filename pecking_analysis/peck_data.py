@@ -84,13 +84,16 @@ def peck_data(blocks, group1="Rewarded", group2="Unrewarded"):
     output = pd.DataFrame()
     for blk in blocks:
 
-        total_pecks = total_group1 = total_group2 = total_feeds = \
-        percent_group1 = percent_group2 = interrupt_group1 = \
-        interrupt_group2 = z_score = binomial_pvalue = np.nan
+        # Initialize my variables
+        results = dict()
+
+        total_pecks = total_group1 = total_group2 = total_feeds = np.nan
+        percent_group1 = percent_group2 = np.nan
+        interrupt_group1 = interrupt_group2 = percent_interrupt = np.nan
+        zscore = binomial_pvalue = np.nan
 
         if (blk.data is not None) and (len(blk.data) > 0):
             data = blk.data.copy()
-            results = dict()
 
             # Get peck information
             total_pecks = len(blk.data)
