@@ -807,7 +807,7 @@ if __name__ == "__main__":
     import sys
     import argparse
 
-    h5_file = os.path.abspath(os.path.expanduser("~/Dropbox/pecking_test/data/flicker_fusion.h5"))
+    h5_file = os.path.abspath(os.path.expanduser("~/data/flicker_fusion.h5"))
 
     parser = argparse.ArgumentParser(description="Compute probe frequencies")
     subparsers = parser.add_subparsers(title="methods",
