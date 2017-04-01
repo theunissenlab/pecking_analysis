@@ -49,7 +49,6 @@ def get_csv(directory, date=None, bird=None):
             else:
                 datedirs.append(datedir)
         else:
-            datedirs = list()
             for datedir in os.listdir(dirname):
                 datedir = os.path.join(dirname, datedir)
                 if os.path.isdir(datedir):
