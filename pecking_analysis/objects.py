@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+from itertools import product
 import h5py
 import os
 import pandas as pd
@@ -180,35 +181,59 @@ class Block(object):
         good_trials = np.concatenate([good_trials, [len(self.data) - 1]])
         self.data = self.data.iloc[good_trials]
 
-    def plot(self, window_size=20, filename=None):
+    def plot(self,
+            window_size=20,
+            filename=None,
+            split_on_columns=None
+        ):
+        """
 
-        from itertools import product
+        split_on_columns:
+            list of column(s) to group data by to plot,
+            if left blank, defaults to ["Class"]
+        """
 
         fig = plt.figure(facecolor="white", edgecolor="white", figsize=(15, 3))
         ax = fig.gca()
-        # ax2 = ax.twinx()
-        class_names = self.data["Class"].unique().tolist()
-        call_names = self.data["Call Type"].unique().tolist()
-        class_call_pairings = list(product(class_names, call_names))
+
+        # class_names = self.data["Class"].unique().tolist()
+        # call_names = self.data["Call Type"].unique().tolist()
+
+        if split_on_columns is None:
+            split_on_columns = ["Class"]
+
+        categories = sorted(list(product(*[self.data[col].unique().tolist() for col in split_on_columns])))
+
+
+        # class_call_pairings = list(product(class_names, call_names))
         # convert_rt = lambda x: x.total_seconds() if x != "nan" else np.nan
-        grouped = self.data.groupby(["Class", "Call Type"])
+        grouped = self.data.groupby(split_on_columns)
 
         try:
             import palettable
             colors = palettable.tableau.ColorBlind_10.mpl_colors
         except ImportError:
-            colors = plt.get_cmap("brg")
-            colors = [colors(ff) for ff in np.linspace(0, 1, len(class_call_pairings))]
+            colors = None
 
-        for ii, cn in enumerate(class_call_pairings):
+        if colors is None or len(categories) > len(colors):
+            colors = plt.get_cmap("gist_ncar")
+            colors = [colors(ff) for ff in np.linspace(0, 1, len(categories))]
+
+        for ii, cn in enumerate(categories):
             try:
-                g = grouped.get_group(cn)
+                if len(cn) == 1:
+                    g = grouped.get_group(cn[0])
+                else:
+                    g = grouped.get_group(cn)
             except KeyError:
                 continue
+
+            print(cn, len(g))
+
             pd.rolling_mean(g["Response"],
                             window_size,
                             center=True).plot(ax=ax,
-                                              color=colors[ii],
+                                              color=colors[categories.index(cn)],
                                               linewidth=2,
                                               label=cn)
             # pd.rolling_mean(g[g["Response"] == 1]["RT"].apply(convert_rt),
@@ -220,10 +245,13 @@ class Block(object):
 
         # inds = self.data[self.data["Response"] == 1].index
         # c = [colors[class_names.index(cn)] for cn in self.data.loc[inds]["Class"].values]
-        inds = self.data.index
-        c = [colors[class_call_pairings.index(cn)] for cn in class_call_pairings] #self.data["Class"].values]
-        ax.scatter(inds, np.ones((len(inds),)), s=100, c=c, marker="|", edgecolor="face")
-        ax.set_ylim((0, 1))
+
+            inds = g.index
+            ax.scatter(inds, np.ones((len(inds),)), s=100, color=colors[categories.index(cn)], marker="|", edgecolor="face")
+        # inds = self.data.index
+        # c = [colors[class_call_pairings.index(cn)] for cn in class_call_pairings] #self.data["Class"].values]
+        # ax.scatter(inds, np.ones((len(inds),)), s=100, c=c, marker="|", edgecolor="face")
+        ax.set_ylim((-0.1, 1.1))
 
         for loc in ["right", "top"]:
             ax.spines[loc].set_visible(False)
