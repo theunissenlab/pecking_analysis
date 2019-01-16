@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import datetime
 import os
 import re
 import numpy as np
@@ -84,7 +85,7 @@ class PythonCSV(Importer):
                 deltadict = dict(hours=hours,
                                  minutes=minutes,
                                  seconds=seconds)
-                return pd.datetools.timedelta(**deltadict)
+                return datetime.timedelta(**deltadict)
             else:
                 return rt
 

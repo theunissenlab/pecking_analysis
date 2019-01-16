@@ -49,6 +49,7 @@ def get_csv(directory, date=None, bird=None):
             else:
                 datedirs.append(datedir)
         else:
+            datedirs = list()
             for datedir in os.listdir(dirname):
                 datedir = os.path.join(dirname, datedir)
                 if os.path.isdir(datedir):
@@ -59,3 +60,30 @@ def get_csv(directory, date=None, bird=None):
         csv_files.extend([os.path.join(dirname, fname) for fname in filenames])
 
     return csv_files
+
+def organize_and_merge_blocks(blocks):
+    """
+    Given a series of blocks (sessions), merges all blocks from the same day. 
+    Returns a new list of blocks, one per day.
+    """
+
+    times = [blk.data.index[0] for blk in blocks]
+    blocks = [block for _, block in sorted(list(zip(times,blocks)))]
+    days = [time.date() for time in times]
+    days = [day for _, day in sorted(list(zip(times, days)))]
+    len_unique = len(np.unique(days))
+
+    # merge all blocks with the same day
+    new_blocks = list()
+    merged_index = list()
+    j=0
+    for i in np.arange(len_unique-1):
+        i = i+j
+        ref_day = days[i]
+        samesame = [blocks[index+i] for index, day in enumerate(days[i:]) if day == ref_day]
+        if len(samesame) > 1:
+            new_blocks.append(Block.merge(samesame))
+            j = j+len(samesame)-1
+        else:
+            new_blocks.append(blocks[i])  
+    return(new_blocks)

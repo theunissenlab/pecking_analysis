@@ -21,6 +21,12 @@ class Block(object):
     - save: Save the block (only hdf5 files are currently supported)
     - load: Load a block from the specified location
     - plot: Plot a quick representation of the data throughout the block
+    - reject_double_pecks: Birds typically peck faster than the software responds and some must be rejected
+ 
+    TODO: 
+    - Add a method to reject the first one or two pecks of the day (testing pecks by human)
+    - Add better plotting functions
+    - Add organize_and_merge_blocks (?)
     '''
 
     first_peck = property(fget=lambda self: self.data.index[0], doc="The timestamp of the first peck")
@@ -43,7 +49,6 @@ class Block(object):
         :param store: An HDF5Store instance.
         :param kwargs: Any additional keyword arguments will be added as annotations
         """
-
         self.name = name
         self.date = date
         self.start = start
@@ -115,7 +120,7 @@ class Block(object):
             else:
                 name = blk.name
 
-            filenames.append(blk.filename)
+            filenames.append(blk.annotations.get("filename", blk.annotations.get("filenames")))
             data = pd.concat([data, blk.data])
 
         return cls(name=name,
@@ -164,26 +169,42 @@ class Block(object):
 
         return block
 
+    def reject_double_pecks(self, rejection_threshold=200):
+        """Remove trials that are interrupted too quickly
+
+        :param rejection_threshold: minimum intertrial duration in ms
+        """
+        good_trials = np.where(
+            np.diff(self.data.index).astype('timedelta64[ms]') >= np.timedelta64(rejection_threshold, "ms")
+        )[0]
+        good_trials = np.concatenate([good_trials, [len(self.data) - 1]])
+        self.data = self.data.iloc[good_trials]
+
     def plot(self, window_size=20, filename=None):
 
+        from itertools import product
 
-
-        fig = plt.figure(facecolor="white", edgecolor="white")
+        fig = plt.figure(facecolor="white", edgecolor="white", figsize=(15, 3))
         ax = fig.gca()
         # ax2 = ax.twinx()
         class_names = self.data["Class"].unique().tolist()
+        call_names = self.data["Call Type"].unique().tolist()
+        class_call_pairings = list(product(class_names, call_names))
         # convert_rt = lambda x: x.total_seconds() if x != "nan" else np.nan
-        grouped = self.data.groupby("Class")
+        grouped = self.data.groupby(["Class", "Call Type"])
 
         try:
             import palettable
             colors = palettable.tableau.ColorBlind_10.mpl_colors
         except ImportError:
-            colors = plt.get_cmap("viridis")
-            colors = [colors(ff) for ff in np.linspace(0, 1, len(class_names))]
+            colors = plt.get_cmap("brg")
+            colors = [colors(ff) for ff in np.linspace(0, 1, len(class_call_pairings))]
 
-        for ii, cn in enumerate(class_names):
-            g = grouped.get_group(cn)
+        for ii, cn in enumerate(class_call_pairings):
+            try:
+                g = grouped.get_group(cn)
+            except KeyError:
+                continue
             pd.rolling_mean(g["Response"],
                             window_size,
                             center=True).plot(ax=ax,
@@ -200,7 +221,7 @@ class Block(object):
         # inds = self.data[self.data["Response"] == 1].index
         # c = [colors[class_names.index(cn)] for cn in self.data.loc[inds]["Class"].values]
         inds = self.data.index
-        c = [colors[class_names.index(cn)] for cn in self.data["Class"].values]
+        c = [colors[class_call_pairings.index(cn)] for cn in class_call_pairings] #self.data["Class"].values]
         ax.scatter(inds, np.ones((len(inds),)), s=100, c=c, marker="|", edgecolor="face")
         ax.set_ylim((0, 1))
 
