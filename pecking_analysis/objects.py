@@ -106,7 +106,7 @@ class Block(object):
         return True
 
     def filter_conditions(self, conditions):
-        self.data = self.data.iloc[np.isin(self.data["Class"], conditions)]
+        self.data = self.data.iloc[np.in1d(self.data["Class"], conditions)]
 
     @classmethod
     def merge(cls, blocks):
