@@ -1,11 +1,25 @@
 from __future__ import division, print_function
-from itertools import product
+from itertools import product, groupby
 import h5py
 import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
-from pecking_analysis import peck_data
+
+
+def merge_daily_blocks(blocks):
+    blocks = list(sorted(blocks, key=lambda b: b.data.index[0]))
+
+    new_blocks = []
+    for _, group in groupby(blocks, lambda b: b.data.index[0].date()):
+        group = list(group)
+        if len(group) > 1:
+            new_blocks.append(Block.merge(group))
+        else:
+            new_blocks.append(group[0])
+
+    return new_blocks
+
 
 class Block(object):
     '''
@@ -90,6 +104,9 @@ class Block(object):
             return self.store.annotate_block(self, **self.annotations)
 
         return True
+
+    def filter_conditions(self, conditions):
+        self.data = self.data.iloc[np.isin(self.data["Class"], conditions)]
 
     @classmethod
     def merge(cls, blocks):
@@ -412,20 +429,6 @@ class HDF5Store(object):
 
         return group
 
-
-def summarize_blocks(blocks):
-    """ Get the number of blocks and the number of pecks per block """
-
-    blocks = [blk for blk in blocks if len(blk.data) > 0]
-    performance = peck_data.peck_data(blocks).reset_index()
-    grouped = performance.groupby("Bird")
-    birds = grouped.groups.keys()
-    summary = pd.DataFrame([], columns=["Blocks", "Pecks"], index=birds)
-    for bird, group in grouped:
-        summary.loc[bird]["Blocks"] = len(group)
-        summary.loc[bird]["Pecks"] = group["Total"]["Trials"].mean()
-
-    return summary.sort_index()
 
 
 def plot_interruption_rates(blocks):

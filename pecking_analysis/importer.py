@@ -81,6 +81,8 @@ class PythonCSV(Importer):
         def rt_to_timedelta(rt):
 
             if rt != "nan":
+                if rt == "":
+                    return "nan"
                 hours, minutes, seconds = [float(ss) for ss in rt.split(":")]
                 deltadict = dict(hours=hours,
                                  minutes=minutes,
