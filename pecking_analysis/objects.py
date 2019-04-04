@@ -87,7 +87,7 @@ class Block(object):
 
         if len(self.annotations):
             output.append("Annotations:")
-            for key, val in self.annotations.iteritems():
+            for key, val in self.annotations.items():
                 output.append("\t%s = %s" % (str(key), str(val)))
 
         return "\n".ljust(13).join(output)
@@ -340,7 +340,7 @@ class HDF5Store(object):
             g.attrs["name"] = block.name
             g.attrs["date"] = block.date.strftime("%d%m%Y")
             g.attrs["start"] = block.start.strftime("%H%M%S")
-            for key, val in block.annotations.iteritems():
+            for key, val in block.annotations.items():
                 g.attrs[key] = or_none(val)
 
         # Store the data using pandas built-in to_hdf method
@@ -383,7 +383,7 @@ class HDF5Store(object):
             date = pd.datetime.strptime(annotations.pop("date"), "%d%m%Y").date()
             start = pd.datetime.strptime(annotations.pop("start"), "%H%M%S").time()
 
-            for key, val in annotations.iteritems():
+            for key, val in annotations.items():
                 annotations[key] = or_none(val)
 
         return Block(name=name,

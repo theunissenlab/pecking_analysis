@@ -16,7 +16,7 @@ from pecking_analysis.importer import PythonCSV
 
 def get_dates(directory):
     dates = [os.path.basename(date) for date in glob.glob(os.path.join(directory, "*"))]
-    dates = [datetime.date(int(date[-2:]), int(date[2:-2]), int(date[:2])) for date in dates
+    dates = [datetime.date(2000 + int(date[-2:]), int(date[2:-2]), int(date[:2])) for date in dates
             if re.search(r"^[0-9]{6}$", date)]
 
     return sorted(dates)
