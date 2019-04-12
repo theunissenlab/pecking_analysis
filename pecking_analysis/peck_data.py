@@ -22,7 +22,44 @@ def get_dates(directory):
     return sorted(dates)
 
 
-def load_pecking_days(directory, conditions=("Rewarded", "Unrewarded")):
+def windows_by_reward(df, versus, rewarded=True, n=4):
+    """Break dataframe up into windows, where each window has 4 at least 4 rewarded and 4 unrewarded trials
+    """
+
+    counter = {
+        True: 0,
+        False: 0,
+    }
+
+
+    combined = pd.concat([df, versus]).sort_values(by="OverallTrial")
+
+    break_points = [0]
+    for i in range(len(combined)):
+        counter[combined.iloc[i]["Class"] == "Rewarded"] += 1
+
+        if (
+                (counter[True] >= n and counter[False] >= (10 * n if not rewarded else n)) or
+                (counter[True] >= 1 and np.sum(list(counter.values())) > 50)
+                ):
+            break_points.append(combined["OverallTrial"].iloc[i] + 1)
+            # break_indexes.append(combined["OverallTrial"].iloc[i])
+            counter[True] = 0
+            counter[False] = 0
+
+    if combined["OverallTrial"].iloc[-1] > break_points[-1]:
+        break_points.append(combined["OverallTrial"].iloc[-1] + 1)
+
+    return [
+        df[(break_points[i] <= df["OverallTrial"]) & (break_points[i + 1] > df["OverallTrial"])]
+        for i in range(len(break_points) - 1)
+    ], [
+        versus[(break_points[i] <= versus["OverallTrial"]) & (break_points[i + 1] > versus["OverallTrial"])]
+        for i in range(len(break_points) - 1)
+    ]
+
+
+def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrewarded")):
     file_list = []
 
     if re.search("^[0-9]{6}$", os.path.basename(directory)):
@@ -34,17 +71,18 @@ def load_pecking_days(directory, conditions=("Rewarded", "Unrewarded")):
             file_list.append(csv_file)
     else:
         for date in get_dates(directory):
-            date_folder = os.path.join(directory, date.strftime("%d%m%y"))
-            csvs = glob.glob(os.path.join(date_folder, "*.csv"))
+            if date_range is None or (date_range[0] <= date <= date_range[1]):
+                date_folder = os.path.join(directory, date.strftime("%d%m%y"))
+                csvs = glob.glob(os.path.join(date_folder, "*.csv"))
 
-            for csv_file in csvs:
-                if os.path.getsize(csv_file) < 500:
-                    # don't load empty or tiny csv files
-                    continue
-                file_list.append(csv_file)
+                for csv_file in csvs:
+                    if os.path.getsize(csv_file) < 500:
+                        # don't load empty or tiny csv files
+                        continue
+                    file_list.append(csv_file)
 
     blocks = PythonCSV.parse(file_list)
-    blocks = merge_daily_blocks(blocks)
+    blocks = merge_daily_blocks(blocks, date_range=date_range)
 
     for block in blocks:
         block.filter_conditions(conditions)
@@ -93,7 +131,7 @@ class color_by_reward(object):
             return "Red"
 
 
-def plot_data(block, labels, index_by="time", label_order=None, label_to_color=None):
+def plot_data(block, labels, force_len=None, index_by="time", label_order=None, label_to_color=None):
     """Plot the data organized by given labels
 
     Parameters
@@ -111,6 +149,9 @@ def plot_data(block, labels, index_by="time", label_order=None, label_to_color=N
         dictionary or object mapping the label to color to plot,
         must implement a .get(label) method returning color
     """
+    # if not len(labels):
+    #     return
+
     unique_labels = labels.unique()
     if label_order is not None:
         unique_labels = sorted(unique_labels, key=label_order)
@@ -183,7 +224,7 @@ def plot_data(block, labels, index_by="time", label_order=None, label_to_color=N
     # if index_by == "time":
         # prob_ax.set_xlim(block.data.index[0], block.data.index[-1])
     # else:
-    prob_ax.set_xlim(0, len(block.data))
+    prob_ax.set_xlim(0, force_len or len(block.data))
     events_ax.legend(
         loc="upper left",
         bbox_to_anchor=(0, -0.35 - 0.1 * n_categories),

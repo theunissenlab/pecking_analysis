@@ -7,16 +7,29 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def merge_daily_blocks(blocks):
+def merge_daily_blocks(blocks, date_range=None):
     blocks = list(sorted(blocks, key=lambda b: b.data.index[0]))
 
     new_blocks = []
-    for _, group in groupby(blocks, lambda b: b.data.index[0].date()):
-        group = list(group)
-        if len(group) > 1:
+    if date_range is not None:
+        group = []
+        for block in blocks:
+            if (date_range[0] <= block.data.index[0].date() <= date_range[1]):
+                group.append(block)
+
+        if len(group) == 0:
+            pass
+        elif len(group) > 1:
             new_blocks.append(Block.merge(group))
         else:
             new_blocks.append(group[0])
+    else:
+        for _, group in groupby(blocks, lambda b: b.data.index[0].date()):
+            group = list(group)
+            if len(group) > 1:
+                new_blocks.append(Block.merge(group))
+            else:
+                new_blocks.append(group[0])
 
     return new_blocks
 
@@ -67,6 +80,8 @@ class Block(object):
         self.name = name
         self.date = date
         self.start = start
+        if "OverallTrial" not in data:
+            data["OverallTrial"] = data["Trial"]
         self.data = data
         self.store = store
 
@@ -140,6 +155,8 @@ class Block(object):
 
             filenames.append(blk.annotations.get("filename", blk.annotations.get("filenames")))
             data = pd.concat([data, blk.data])
+
+        data["OverallTrial"] = pd.Series(np.arange(len(data)), index=data.index)
 
         return cls(name=name,
                    date=earliest.date(),
