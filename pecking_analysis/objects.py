@@ -82,6 +82,15 @@ class Block(object):
         self.start = start
         if "OverallTrial" not in data:
             data["OverallTrial"] = data["Trial"]
+        if "filename" in kwargs:
+            data["Filename"] = pd.Series(
+                [os.path.basename(kwargs["filename"])] * len(data),
+                index=data.index
+            )
+            data["Date"] = pd.Series(
+                [self.date] * len(data),
+                index=data.index
+            )
         self.data = data
         self.store = store
 
