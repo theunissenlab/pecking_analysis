@@ -3,6 +3,7 @@ numpy
 scipy
 pandas
 matplotlib
-statsmodels
-palettable
--e git+https://github.com/mschachter/LaSP.git
+jupyter
+# statsmodels
+# palettable
+# -e git+https://github.com/mschachter/LaSP.git
