@@ -99,7 +99,9 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
     for block, stim_df in zip(blocks, stim_blocks):
         if not len(block.data):
             continue
-        block.reject_double_pecks(200)
+        print("Loading {} {}".format(block.date, directory))
+        block.reject_double_pecks(200)  # don't include trials that start less than 200ms apart
+        block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
         block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
 
         # join the finalized block to its stimuli
@@ -126,12 +128,21 @@ class color_by_reward(object):
     @staticmethod
     def get(x):
         if "Rewarded" in x:
-            return "Blue"
+            return "#0AA5D8" # "#0094FA"
         else:
-            return "Red"
+            return "#C62533" # "#D800DF"
 
 
-def plot_data(block, labels, force_len=None, index_by="time", label_order=None, label_to_color=None):
+def plot_data(
+        block,
+        labels,
+        force_len=None,
+        index_by="time",
+        label_order=None,
+        label_to_color=None,
+        tick_height=0.1,
+        figsize=None,
+        ):
     """Plot the data organized by given labels
 
     Parameters
@@ -159,14 +170,17 @@ def plot_data(block, labels, force_len=None, index_by="time", label_order=None, 
         unique_labels = sorted(unique_labels)
 
     n_categories = len(unique_labels)
-    
-    fig = plt.figure(facecolor="white", edgecolor="white", figsize=(10, 4 + 0.5 * n_categories))
-    
+
+    if figsize is None:
+        fig = plt.figure(facecolor="white", edgecolor="white", figsize=(10, 4 + 5 * tick_height * n_categories))
+    else:
+        fig = plt.figure(facecolor="white", edgecolor="white", figsize=figsize)
+
     events_ax = fig.gca()
     prob_ax = events_ax.twinx()
-    
-    events_ax.set_ylim(-0.2 - 0.1 * n_categories, 1.2 + 0.1 * n_categories)
-    prob_ax.set_ylim(-0.2 - 0.1 * n_categories, 1.2 + 0.1 * n_categories)
+
+    events_ax.set_ylim(-0.2 - tick_height * n_categories, 1.2 + tick_height * n_categories)
+    prob_ax.set_ylim(-0.2 - tick_height * n_categories, 1.2 + tick_height * n_categories)
 
     if label_to_color is None:
         label_to_color = {}
@@ -176,27 +190,27 @@ def plot_data(block, labels, force_len=None, index_by="time", label_order=None, 
         # pass
     # else:
         # block.data.index = pd.Series(np.arange(len(block.data)))
-    
+
     for label_idx, label in enumerate(unique_labels):
         label_df = block.data[labels == label]
-        
+
         # Polarity signal (1 if pecked, -1 if not)
         flip = label_df["Response"].apply(lambda x: 1 if x else -1)
         # Binary signal (1 if pecked, 0 if not)
         binary = label_df["Response"].apply(lambda x: 1 if x else 0)
-        
+
         # Plot events scatter
-        scat = events_ax.scatter(label_df.index, 
-            ((1.0 * binary) + (0.2 * flip)) + flip * 0.1 * label_idx * np.ones((len(label_df.index))),
-            s=50, 
+        scat = events_ax.scatter(label_df.index,
+            ((1.0 * binary) + (2 * tick_height * flip)) + flip * tick_height * label_idx * np.ones((len(label_df.index))),
+            s=50,
             marker="|",
             color=label_to_color.get(label),
             label=label
         )
-        
-        events_ax.vlines(x=0, ymin=1.1, ymax=1.3 + 0.1 * n_categories, color='black', linewidth=2)
-        events_ax.vlines(x=0, ymin=-0.3 - 0.1 * n_categories, ymax=-0.1, color='black', linewidth=2)
-        
+
+        events_ax.vlines(x=0, ymin=1 + tick_height, ymax=1.3 + tick_height * n_categories, color='black', linewidth=2)
+        events_ax.vlines(x=0, ymin=-0.3 - tick_height * n_categories, ymax=-tick_height, color='black', linewidth=2)
+
         if len(label_df["Response"]) > 30:
             win_size = 20
         elif len(label_df["Response"]) > 15:
@@ -213,7 +227,7 @@ def plot_data(block, labels, force_len=None, index_by="time", label_order=None, 
             label_df.index,
             rolled,
             label=scat.get_label(),
-            alpha=0.5,
+            alpha=1.0,  # 0.5
             linewidth=3,
             color=scat.get_edgecolor()[0],
         )
@@ -225,17 +239,17 @@ def plot_data(block, labels, force_len=None, index_by="time", label_order=None, 
         # prob_ax.set_xlim(block.data.index[0], block.data.index[-1])
     # else:
     prob_ax.set_xlim(0, force_len or len(block.data))
-    events_ax.legend(
-        loc="upper left",
-        bbox_to_anchor=(0, -0.35 - 0.1 * n_categories),
-        bbox_transform=events_ax.transData,
-        fontsize=12, ncol=2)
-    events_ax.xaxis.set_tick_params(labelsize=14)
+    # events_ax.legend(
+    #     loc="upper left",
+    #     bbox_to_anchor=(0, -0.35 - 0.1 * n_categories),
+    #     bbox_transform=events_ax.transData,
+    #     fontsize=12, ncol=2)
+    events_ax.xaxis.set_tick_params(labelsize=16)
     events_ax.set_yticks([0, 1])
-    events_ax.set_yticklabels([0.0, 1.0], size=14)
-    events_ax.set_ylabel("Prob.\ninterrupt", fontsize=14)
+    events_ax.set_yticklabels([0.0, 1.0], size=16)
+    events_ax.set_ylabel("Prob.\ninterrupt", fontsize=16)
     events_ax.set_xticks([])
-    events_ax.set_xlabel("Trial", fontsize=14)
+    events_ax.set_xlabel("Trial", fontsize=16)
     prob_ax.set_yticks([])
     events_ax.spines['top'].set_visible(False)
     events_ax.spines['right'].set_visible(False)
@@ -249,11 +263,11 @@ def plot_data(block, labels, force_len=None, index_by="time", label_order=None, 
     events_ax.set_yticks([0.2, 0.4, 0.6, 0.8], minor=True)
     events_ax.grid(which='minor', alpha=0.8, linestyle=":")
 
-    events_ax.text(0, 1.15 + 0.05 * n_categories, "Int.  ", fontsize=14, horizontalalignment="right", verticalalignment="center")
-    events_ax.text(0, -0.15 - 0.05 * n_categories, "Wait  ",  fontsize=14, horizontalalignment="right", verticalalignment="center")
+    events_ax.text(0, 1 + (2 * tick_height) + tick_height * 0.5 * n_categories, "Int.  ", fontsize=16, horizontalalignment="right", verticalalignment="center")
+    events_ax.text(0, -(2 * tick_height) - tick_height * 0.5 * n_categories, "Wait  ",  fontsize=16, horizontalalignment="right", verticalalignment="center")
 
     events_ax.vlines(x=0, ymin=0, ymax=1, color='black', linewidth=2)
-    
+
     block.data.index = old_index
 
     return fig

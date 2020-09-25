@@ -224,6 +224,52 @@ class Block(object):
         good_trials = np.concatenate([good_trials, [len(self.data) - 1]])
         self.data = self.data.iloc[good_trials]
 
+    def reject_stuck_pecks(self, iti=(6000, 6050)):
+        """Remove trials that are too close to the stimulus time
+
+        This is the result of a hardware problem where the key can get stuck
+        and continue to trigger trials right after a stimulus is finished.
+        I don't think we've ever fixed this (as of Feb 2020) but the work around
+        is to remove these specific trials by finding those trials with specific
+        itis. The specific intervals happen in blocks, and itis range between
+        6010ms and 6050ms.
+
+        To minimize how often we grab such intervals, we look for strings of
+        trials (>3) with itis within the iti range, and remove those stretches.
+
+        :param rejection_threshold: minimum intertrial duration in ms
+        """
+
+        potentially_bad_trials = []
+        potentially_bad_trials = np.where(
+            (np.abs(np.diff(self.data.index).astype("timedelta64[ms]")) > np.timedelta64(iti[0], "ms")) &
+            (np.abs(np.diff(self.data.index).astype("timedelta64[ms]")) < np.timedelta64(iti[1], "ms"))
+        )[0]
+
+        bad_trials = []
+        current_run = []
+        for trial_idx in potentially_bad_trials:
+            # if its consecutive, keep adding
+            if not len(current_run) or trial_idx == current_run[-1] + 1:
+                current_run.append(trial_idx)
+            else:
+                if len(current_run) > 3:
+                    bad_trials += current_run
+                current_run = [trial_idx]
+        if len(current_run) >= 3:
+            bad_trials += current_run
+        bad_trials = np.array(bad_trials)
+
+        good_trials = ~np.isin(np.arange(len(self.data.index)), bad_trials)
+
+        if len(bad_trials):
+            print("Warning: Found {} bad trials that were about 6s in a row".format(len(bad_trials)))
+        # good_trials = np.where(
+        #     np.abs(np.diff(self.data.index).astype('timedelta64[ms]') - np.timedelta64(iti, "ms")) > np.timedelta64(50, "ms")
+        # )[0]
+        # good_trials = np.concatenate([good_trials, [len(self.data) - 1]])
+        self.data = self.data.iloc[good_trials]
+
     def plot(self,
             window_size=20,
             filename=None,

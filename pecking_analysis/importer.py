@@ -98,6 +98,7 @@ class PythonCSV(Importer):
                            index_col="Time",
                            converters={"RT": rt_to_timedelta,
                                        "Time": pd.to_datetime})
+        data["Time"] = data.index
 
         return data
 
