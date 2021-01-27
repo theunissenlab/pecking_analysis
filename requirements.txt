@@ -4,6 +4,8 @@ scipy
 pandas
 matplotlib
 jupyter
+tabulate
+click
 # statsmodels
 # palettable
 # -e git+https://github.com/mschachter/LaSP.git
