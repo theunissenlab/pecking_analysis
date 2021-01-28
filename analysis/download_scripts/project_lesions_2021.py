@@ -7,8 +7,9 @@ from configs import config
 
 try:
     g = GDriveCommands(os.path.join(config.gdrive_credentials_dir, "settings.yaml"))
-except:
+except Exception as e:
     g = None
+    print(type(e), e)
     print("gdrive_access credentials not found")
 
 

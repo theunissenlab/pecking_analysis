@@ -9,7 +9,7 @@ from configs.base_pecking_test_2019 import (
 
 
 save_dir = "/data/pecking_test/behavior"
-gdrive_access_credentials_dir = None
+gdrive_credentials_dir = None
 
 subjects = [
     os.path.basename(foldername)

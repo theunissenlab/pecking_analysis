@@ -62,12 +62,11 @@ def summarize_data(df: pd.DataFrame):
         results[("Trials", "Re")] = len(rewarded_trials)
         results[("Trials", "NonRe")] = len(nonrewarded_trials)
         results[("Trials", "All")] = len(all_trials)
-        results[("Percent", "Re")] = len(rewarded_trials) / len(all_trials)
-        results[("Percent", "NonRe")] = len(nonrewarded_trials) / len(all_trials)
-        results[("Interrupt", "Re")] = rewarded_trials["Interrupt"].mean()
-        results[("Interrupt", "NonRe")] = nonrewarded_trials["Interrupt"].mean()
-        results[("Interrupt", "All")] = all_trials["Interrupt"].mean()
-        results[("Stats", "OR")] = odds_ratio
+        results[("Trials", "%Re")] = "{:.1f}%".format(100 * len(rewarded_trials) / len(all_trials))
+        results[("Interrupt", "Re")] = "{:.1f}%".format(100 * rewarded_trials["Interrupt"].mean())
+        results[("Interrupt", "NonRe")] = "{:.1f}%".format(100 * nonrewarded_trials["Interrupt"].mean())
+        results[("Interrupt", "All")] = "{:.1f}%".format(100 * all_trials["Interrupt"].mean())
+        results[("Stats", "OR")] = "{:.1f}".format(odds_ratio)
         results[("Stats", "95% CI")] = "({:.1f}, {:.1f})".format(*odds_ratio_95_ci)
         results[("Stats", "P-Value")] = p_value
         results = pd.DataFrame(results, index=[0])
