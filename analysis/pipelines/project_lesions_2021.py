@@ -143,7 +143,7 @@ def apply_column_names(df: pd.DataFrame, column_map: Dict[str, Tuple[str, Callab
 def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
     """Loads all dataframes for a subject, filters the trials, and orders them by time
     """
-    raw_files = glob.glob(os.path.join(config.save_dir, subject, "raw", "*.csv"))
+    raw_files = glob.glob(os.path.join(config.behavior_data_dir, subject, "raw", "*.csv"))
     dfs = []
 
     for csv in raw_files:
@@ -171,11 +171,39 @@ def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=No
     return df
 
 
+def join_subject_metadata(df: pd.DataFrame, subject_metadata: pd.Series):
+    """Populate columns that require subject metadata information
+
+    The columns needed are Condition, Subject Group, and Ladder Group.
+
+    I would rename them to Condition, Treatment, and Ladder Group
+    """
+    df = df.copy()
+
+    df["Treatment"] = subject_metadata["Treatment"]
+
+    def get_ladder_group(row):
+        is_prelesion = row["Date"] <= subject_metadata["Lesion Date"]
+        is_set_2 = row["Test Context"].endswith("S2")
+        if is_prelesion and not is_set_2:
+            return "PrelesionSet1"
+        elif not is_prelesion and not is_set_2:
+            return "PostlesionSet1"
+        elif not is_prelesion and is_set2:
+            return "PostlesionSet2"
+        else:
+            raise Exception("This dataset should not have any prelesion data for set 2")
+
+    df["Ladder Group"] = df.apply(get_ladder_group, axis=1)
+
+    return df
+
+
 def run_pipeline_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
     logger.debug("Running data pipeline for {}".format(subject))
+
     df = load_all_for_subject(subject, config, from_date, to_date)
 
-    # Here we have a specific step to correct the data from Jan 23
     df = add_stimulus_columns(df)
     _, _, df = split_shaping_preference_test(df)
     stims_df = extract_stim_df(df)
@@ -183,11 +211,32 @@ def run_pipeline_subject(subject: str, config: dict, from_date: datetime.date=No
     # df = create_informative_trials_column(df, as_column="Informative Trials Seen")
     # logger.info("Calculated Informative Trials Columns")
 
+    subjects_metadata = pd.read_csv(config.subject_metadata_path, parse_dates=True, converters={"Lesion Date": pd.to_datetime})
+    subject_metadata = subjects_metadata.query("Subject == '{}'".format(subject)).iloc[0]
+
+    df = join_subject_metadata(df, subject_metadata)
+
+    # Here we have a specific step to correct and update the data from specific subjects
+    if subject == "GreBla7410M":
+        idx = df[
+            (df["Subject"] == "GreBla7410M") &
+            (df["Date"] >= datetime.date(2020, 1, 7)) &
+            (df["Date"] <= datetime.date(2020, 1, 10))
+        ].index
+        df[idx, "Condition"] = "MonthLater"
+    if subject == "GreBla5671F":
+        idx = df[
+            (df["Subject"] == "GreBla5671F") &
+            (df["Date"] >= datetime.date(2020, 1, 7)) &
+            (df["Date"] <= datetime.date(2020, 1, 10))
+        ].index
+        df[idx, "Condition"] = "MonthLater"
+
     return df
 
 
 if __name__ == "__main__":
-    from configs import config
+    from configs.active_config import config
     from analysis.download_scripts.project_lesions_2021 import download
 
     try:

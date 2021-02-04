@@ -19,6 +19,12 @@ def download_data():
     download()
 
 
+@click.command()
+def locate_data():
+    from analysis.download_scripts.project_lesions_2021 import get_subject_folders
+    print(get_subject_folders())
+
+
 @click.command("data")
 @click.argument("subjects", type=str, nargs=-1)
 @click.option("-d", "--date", "--from", type=click.DateTime(formats=("%d-%m-%y", "%d%m%y", "%d-%m-%Y", "%d%m%Y")))
@@ -27,7 +33,7 @@ def download_data():
 def summarize_data(subjects, date, until, debug):
     import pandas as pd
 
-    from configs import config
+    from configs.active_config import config
     from analysis.analysis import create_informative_trials_column, summarize_data
     from analysis.pipelines.project_lesions_2021 import load_all_for_subject, run_pipeline_subject
 
@@ -61,6 +67,7 @@ def summarize_data(subjects, date, until, debug):
 
 cli.add_command(download_data)
 cli.add_command(summarize_data)
+cli.add_command(locate_data)
 
 
 if __name__ == "__main__":
