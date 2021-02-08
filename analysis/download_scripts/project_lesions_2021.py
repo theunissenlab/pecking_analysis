@@ -37,6 +37,9 @@ def download_subject_csvs(subject_folder: GoogleDriveFile, save_dir: str):
     if not os.path.exists(subject_save_dir):
         os.makedirs(subject_save_dir)
 
+
+    print("Downloading {}".format("\n".join([c["title"] for c in csv_files])))
+
     g.download_files(csv_files, subject_save_dir, overwrite=g.Overwrite.ON_MD5_CHECKSUM_CHANGE)
 
 

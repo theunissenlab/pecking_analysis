@@ -24,6 +24,25 @@ class ProjectConfig(LocalConfig, BaseConfig):
         "WhiBlu5805F",
     ]
 
+    valid_test_contexts = [
+        "DCvsDC_1v1",
+        "DCvsDC_1v1_S2",
+        "DCvsDC_4v4",
+        "DCvsDC_4v4_S2",
+        "DCvsDC_6v6_d1",
+        "DCvsDC_6v6_d1_S2",
+        "DCvsDC_6v6_d2",
+        "DCvsDC_6v6_d2_S2",
+        "SovsSo_1v1",
+        "SovsSo_1v1_S2",
+        "SovsSo_4v4",
+        "SovsSo_4v4_S2",
+        "SovsSo_8v8_d1",
+        "SovsSo_8v8_d1_S2",
+        "SovsSo_8v8_d2",
+        "SovsSo_8v8_d2_S2",
+    ]
+
     @property
     def subject_metadata_path(self):
         return os.path.join(self.metadata_dir, "lesion_metadata.csv")

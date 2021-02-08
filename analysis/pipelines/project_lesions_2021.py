@@ -20,17 +20,23 @@ from analysis.analysis import create_informative_trials_column
 logger = logging.getLogger(__name__)
 
 
-def get_test_context(full_stim_path: str) -> str:
-    """Return the 'test' the stim is from using the directory structure
-
-    Stimuli were organized like ... stimuli/<group>/<TESTFOLDER>/box2/rewarded/ ...
-
-    e.g.
-    stimuli/ladder/SovsSo_4v4/box2/...
-    stimuli/shaping/shapingSongID/...
-    stimuli/preference_tests/<SubjectName>/...
-    """
+def _get_test_context_old(full_stim_path: str) -> str:
     x, y = os.path.split(full_stim_path)
+
+    if os.path.split(x)[1] == "stimuli":
+        if y == "preference_tests":
+            return "preference"
+        elif y == "shapingSongID":
+            return "shaping"
+        else:
+            return y
+    else:
+        return _get_test_context_old(x)
+
+
+def _get_test_context_new(full_stim_path: str) -> str:
+    x, y = os.path.split(full_stim_path)
+
     if os.path.split(x)[1] == "ladder":
         return y
     elif os.path.split(x)[1] == "shaping":
@@ -39,6 +45,33 @@ def get_test_context(full_stim_path: str) -> str:
         return "preference"
     else:
         return get_test_context(x)
+
+
+def get_test_context(full_stim_path: str) -> str:
+    """Return the 'test' the stim is from using the directory structure
+
+    This function disambiguates between two folder organizations we've used
+
+    The new version, paths start with "/data/pecking_test/stimuli"
+    Stimuli were organized like ... stimuli/<group>/<TESTFOLDER>/box2/rewarded/ ...
+
+    e.g.
+    stimuli/ladder/SovsSo_4v4/box2/...
+    stimuli/shaping/shapingSongID/...
+    stimuli/preference_tests/<SubjectName>/...
+
+    The old style, paths started with "/home/fet/stimuli"
+
+    stimuli/SovsSo_4v4/box2/...
+    stimuli/preference_tests/box2/...
+    stimuli/shapingSongID/...
+    """
+    if full_stim_path.startswith("/home/fet/stimuli"):
+        return _get_test_context_old(full_stim_path)
+    elif full_stim_path.startswith("/data/pecking_test/stimuli"):
+        return _get_test_context_new(full_stim_path)
+    else:
+        raise ValueError("No handler for stimulus at {} found".format(full_stim_path))
 
 
 def read_metadata_from_stimulus_filename(stim_basename: str) -> Dict[str, str]:
@@ -71,7 +104,7 @@ def read_metadata_from_stimulus_filename(stim_basename: str) -> Dict[str, str]:
             rendition = "_".join([section, sections[i-1]])
             break
     else:
-        bird_name = filename
+        bird_name = stim_basename
 
     return {
         "Vocalizer": bird_name,
@@ -105,10 +138,13 @@ def add_stimulus_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def split_shaping_preference_test(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    df_shaping = df[df["Test Context"] == "shaping"].reset_index()
-    df_preference = df[df["Test Context"] == "preference"].reset_index()
-    df_test = df[~np.isin(df["Test Context"], ("shaping", "preference"))].reset_index()
+def split_shaping_preference_test(
+        df: pd.DataFrame,
+        config,
+        ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    df_shaping = df[df["Test Context"] == "shaping"].reset_index(drop=True)
+    df_preference = df[df["Test Context"] == "preference"].reset_index(drop=True)
+    df_test = df[np.isin(df["Test Context"], config.valid_test_contexts)].reset_index(drop=True)
 
     return df_shaping, df_preference, df_test
 
@@ -140,7 +176,7 @@ def apply_column_names(df: pd.DataFrame, column_map: Dict[str, Tuple[str, Callab
     return pd.DataFrame(series)
 
 
-def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
+def load_all_for_subject(subject: str, config, from_date: datetime.date=None, to_date: datetime.date=None):
     """Loads all dataframes for a subject, filters the trials, and orders them by time
     """
     raw_files = glob.glob(os.path.join(config.behavior_data_dir, subject, "raw", "*.csv"))
@@ -164,10 +200,10 @@ def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=No
         df = filter_trials(df, filter_dicts=config.filters)
         dfs.append(df)
 
-    df = pd.concat(dfs, axis=0).sort_values("Time").reset_index()
+    df = pd.concat(dfs, axis=0).sort_values("Time").reset_index(drop=True)
     df["Subject"] = subject
 
-    df = df.reset_index(drop=True)
+    # df = df.reset_index(drop=True)
     return df
 
 
@@ -189,7 +225,7 @@ def join_subject_metadata(df: pd.DataFrame, subject_metadata: pd.Series):
             return "PrelesionSet1"
         elif not is_prelesion and not is_set_2:
             return "PostlesionSet1"
-        elif not is_prelesion and is_set2:
+        elif not is_prelesion and is_set_2:
             return "PostlesionSet2"
         else:
             raise Exception("This dataset should not have any prelesion data for set 2")
@@ -199,17 +235,28 @@ def join_subject_metadata(df: pd.DataFrame, subject_metadata: pd.Series):
     return df
 
 
-def run_pipeline_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
-    logger.debug("Running data pipeline for {}".format(subject))
+def renumber_trials(df: pd.DataFrame) -> pd.DataFrame:
+    """Renumber the trial indexes on each day
+    """
+    df = df.copy()
+    for _, day_subdf in df.groupby(["Subject", "Date"]):
+        df.loc[day_subdf.index, "Trial"] = np.arange(len(day_subdf))
+    return df
+
+
+def run_pipeline_subject(subject: str, config, from_date: datetime.date=None, to_date: datetime.date=None):
+    logger.info("Running data pipeline for {}".format(subject))
 
     df = load_all_for_subject(subject, config, from_date, to_date)
 
     df = add_stimulus_columns(df)
-    _, _, df = split_shaping_preference_test(df)
+    _, _, df = split_shaping_preference_test(df, config)
     stims_df = extract_stim_df(df)
+
     df = apply_column_names(df, config.column_mapping)
     # df = create_informative_trials_column(df, as_column="Informative Trials Seen")
     # logger.info("Calculated Informative Trials Columns")
+    df = renumber_trials(df)
 
     subjects_metadata = pd.read_csv(config.subject_metadata_path, parse_dates=True, converters={"Lesion Date": pd.to_datetime})
     subject_metadata = subjects_metadata.query("Subject == '{}'".format(subject)).iloc[0]
@@ -244,7 +291,14 @@ if __name__ == "__main__":
     except:
         pass
 
+    subject_dfs = []
     for subject in config.subjects:
         # Preprocessing steps
         df = run_pipeline_subject(subject, config)
-        print(df)
+        subject_dfs.append(df)
+
+    full_df = pd.concatenate(subject_dfs).reset_index(drop=True)
+    full_df.to_csv(
+        os.path.join(config.metadata_dir, "TrialsData.csv"),
+        index=False
+    )

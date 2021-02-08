@@ -64,10 +64,42 @@ def summarize_data(subjects, date, until, debug):
         justify="right",
     ))
 
+@click.command()
+@click.argument("output_path", type=click.Path())
+@click.option("--debug", is_flag=True)
+def package_data(output_path, debug):
+    import pandas as pd
+
+    from configs.active_config import config
+    # from analysis.download_scripts.project_lesions_2021 import download
+    from analysis.pipelines.project_lesions_2021 import run_pipeline_subject
+
+    # try:
+    #     download()
+    # except:
+    #     pass
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    subject_dfs = []
+    for subject in config.subjects:
+        # Preprocessing steps
+        df = run_pipeline_subject(subject, config)
+        subject_dfs.append(df)
+
+    full_df = pd.concat(subject_dfs).reset_index(drop=True)
+    full_df.to_csv(
+        output_path,
+        index=False
+    )
+
 
 cli.add_command(download_data)
 cli.add_command(summarize_data)
 cli.add_command(locate_data)
+cli.add_command(package_data)
 
 
 if __name__ == "__main__":
