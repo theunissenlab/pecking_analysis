@@ -14,9 +14,19 @@ def cli():
 
 
 @click.command()
-def download_data():
-    from analysis.download_scripts.project_lesions_2021 import download
-    download()
+@click.option("--trials/--no-trials", default=True, help="Download the trial data")
+@click.option("--preference", is_flag=True, help="Download the preference test data")
+def download_data(trials, preference):
+    from analysis.download_scripts.project_lesions_2021 import (
+        download,
+        download_preference_test_data
+    )
+
+    if trials:
+        download()
+
+    if preference:
+        download_preference_test_data()
 
 
 @click.command()

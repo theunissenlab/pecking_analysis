@@ -74,14 +74,20 @@ def get_test_context(full_stim_path: str) -> str:
         raise ValueError("No handler for stimulus at {} found".format(full_stim_path))
 
 
-def read_metadata_from_stimulus_filename(stim_basename: str) -> Dict[str, str]:
+def read_metadata_from_stimulus_filename(stim_basename: str, prefix: str=None) -> Dict[str, str]:
     """Extract metadata about trials from the filename
 
     Should return a dict mapping the feature name to the
     value extracted.
 
-    Expect: "Call Type", "Vocalizer"
+    Expect: "{prefix}Call Type", "{prefix}Vocalizer"
     """
+    if not stim_basename:
+        return {
+            "{}Vocalizer".format(prefix or ""): None,
+            "{}Call Type".format(prefix or ""): None
+        }
+
     sections = stim_basename.split("_")
 
     for i, section in enumerate(sections):
@@ -107,8 +113,8 @@ def read_metadata_from_stimulus_filename(stim_basename: str) -> Dict[str, str]:
         bird_name = stim_basename
 
     return {
-        "Vocalizer": bird_name,
-        "Call Type": call_type
+        "{}Vocalizer".format(prefix or ""): bird_name,
+        "{}Call Type".format(prefix or ""): call_type
     }
 
 
@@ -125,14 +131,20 @@ def add_stimulus_columns(df: pd.DataFrame) -> pd.DataFrame:
     """
     df = df.copy()
 
-    def _to_row(filename):
-        basename = os.path.splitext(os.path.basename(filename))[0]
-        return read_metadata_from_stimulus_filename(basename)
+    def _to_row(filename, prefix=None):
+        if filename is not None:
+            basename = os.path.splitext(os.path.basename(filename))[0]
+            return read_metadata_from_stimulus_filename(basename, prefix=prefix)
+        else:
+            return read_metadata_from_stimulus_filename(None, prefix=prefix)
 
     _stim_rows = list(df["Stimulus"].apply(_to_row))
     _stim_rows = pd.DataFrame(_stim_rows)
 
-    df = pd.concat([df, _stim_rows], axis=1)
+    _masked_stim_rows = list(df["Masked Stimulus"].apply(lambda x: _to_row(x, prefix="Masked ")))
+    _masked_stim_rows = pd.DataFrame(_masked_stim_rows)
+
+    df = pd.concat([df, _stim_rows, _masked_stim_rows], axis=1)
     df["Stim Key"] = df.agg("{0[Vocalizer]} {0[Call Type]} {0[Class]}".format, axis=1)
     df["Test Context"] = df["Stimulus"].apply(get_test_context)
     return df
@@ -251,11 +263,12 @@ def run_pipeline_subject(subject: str, config, from_date: datetime.date=None, to
 
     df = add_stimulus_columns(df)
     _, _, df = split_shaping_preference_test(df, config)
+
     stims_df = extract_stim_df(df)
 
     df = apply_column_names(df, config.column_mapping)
-    # df = create_informative_trials_column(df, as_column="Informative Trials Seen")
-    # logger.info("Calculated Informative Trials Columns")
+    df = create_informative_trials_column(df, as_column="Informative Trials Seen")
+    logger.info("Calculated Informative Trials Columns")
     df = renumber_trials(df)
 
     subjects_metadata = pd.read_csv(config.subject_metadata_path, parse_dates=True, converters={"Lesion Date": pd.to_datetime})

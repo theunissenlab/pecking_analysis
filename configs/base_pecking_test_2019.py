@@ -12,6 +12,10 @@ class BaseConfig:
         "RT": ("RT", None),
         "Reward": ("Reward", None),
         "Interrupt": ("Response", None),
+        "Masked Stimulus File": ("Masked Stimulus", lambda filename: os.path.splitext(os.path.basename(filename))[0] if filename else None),
+        "Masked Stimulus Vocalizer": ("Masked Vocalizer", None),
+        "Masked Stimulus Call Type": ("Masked Call Type", None),
+        "Masked Stimulus Class": ("Masked Class", lambda rewarded: None if not rewarded else "Rewarded" if rewarded == "Rewarded" else "Nonrewarded"),  # Remap Unrewarded to Nonrewarded
         "Stimulus File": ("Stimulus", lambda filename: os.path.splitext(os.path.basename(filename))[0]),
         "Stimulus Vocalizer": ("Vocalizer", None),
         "Stimulus Call Type": ("Call Type", None),
@@ -25,6 +29,10 @@ class BaseConfig:
     }
 
     filters = [
+        {
+            "name": "fix_response_time_column",
+            "kwargs": {}
+        },
         {
             "name": "reject_double_pecks",
             "kwargs": {
