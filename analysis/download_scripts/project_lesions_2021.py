@@ -16,9 +16,9 @@ except Exception as e:
 
 
 def get_subject_folders():
-    root = g.get_root("TLab Shared Folders")
-    ongoing = g.ls(root, "pecking_test_data", "plump_synced", "behavior")
-    previous = g.ls(root, "pecking_test_data", "behavior_archive", "Ladder Memory Capacity 2019-2021")
+    # root = g.get_root("TLab Shared Folders")
+    ongoing = g.ls("pecking_test_data", "plump_synced", "behavior")
+    previous = g.ls("pecking_test_data", "behavior_archive", "Ladder Memory Capacity 2019-2021")
     return ongoing + previous
 
 

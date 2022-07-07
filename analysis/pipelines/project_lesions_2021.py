@@ -256,6 +256,29 @@ def renumber_trials(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def remove_vocalizers_from_date(df: pd.DataFrame, date: datetime.date):
+    """Removes all trials from the dataset matching the vocalizer/call type on a given date
+
+    Use this function when data was spoiled due to experimental error and some data is unusable
+    """
+    df = df.copy()
+
+    day_df = df[df["Date"] == date]
+
+    to_remove = []
+    for (vocalizer, call_type, reward), _ in day_df.groupby(["Stimulus Vocalizer", "Stimulus Call Type", "Stimulus Class"]):
+        to_remove.append((vocalizer, call_type, reward))
+
+    for (vocalizer, call_type, reward) in to_remove:
+        df = df[~(
+            (df["Stimulus Vocalizer"] == vocalizer) &
+            (df["Stimulus Call Type"] == call_type) &
+            (df["Stimulus Class"] == reward)
+        )]
+
+    return df
+
+
 def run_pipeline_subject(subject: str, config, from_date: datetime.date=None, to_date: datetime.date=None):
     logger.info("Running data pipeline for {}".format(subject))
 
@@ -267,11 +290,17 @@ def run_pipeline_subject(subject: str, config, from_date: datetime.date=None, to
     stims_df = extract_stim_df(df)
 
     df = apply_column_names(df, config.column_mapping)
+
     df = create_informative_trials_column(df, as_column="Informative Trials Seen")
     logger.info("Calculated Informative Trials Columns")
     df = renumber_trials(df)
 
-    subjects_metadata = pd.read_csv(config.subject_metadata_path, parse_dates=True, converters={"Lesion Date": pd.to_datetime})
+    subjects_metadata = pd.read_csv(
+        config.subject_metadata_path,
+        parse_dates=True,
+        converters={"Lesion Date": pd.to_datetime}
+    )
+    subjects_metadata["Lesion Date"] = subjects_metadata["Lesion Date"].apply(lambda x: x.date())
     subject_metadata = subjects_metadata.query("Subject == '{}'".format(subject)).iloc[0]
 
     df = join_subject_metadata(df, subject_metadata)
@@ -291,6 +320,9 @@ def run_pipeline_subject(subject: str, config, from_date: datetime.date=None, to
             (df["Date"] <= datetime.date(2020, 1, 10))
         ].index
         df[idx, "Condition"] = "MonthLater"
+
+    if subject in ["XXXBlu0031M", "HpiGre0651M", "RedHpi0710F", "WhiBlu5805F"]:
+        df = remove_vocalizers_from_date(df, datetime.date(2021, 1, 23))
 
     return df
 
