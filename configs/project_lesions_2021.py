@@ -22,6 +22,16 @@ class ProjectConfig(LocalConfig, BaseConfig):
         "HpiGre0651M",
         "RedHpi0710F",
         "WhiBlu5805F",
+
+        "BluWhi0398F",
+        "BluWhi3230M",
+        "GraYel7337F",
+        "GreWhi2703M",
+
+        "HpiGre8613M",
+        "BluGre4315M",
+        "RedGra7912M",
+        "BluRed8773M",
     ]
 
     valid_test_contexts = [
