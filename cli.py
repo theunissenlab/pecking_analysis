@@ -171,5 +171,49 @@ cli.add_command(package_data)
 cli.add_command(missing_trials)
 
 
+@click.group()
+def preference():
+    pass
+
+
+@click.command("list")
+@click.argument("subjects", type=str, nargs=-1)
+@click.option("-d", "--date", "--from", type=click.DateTime(formats=("%d-%m-%y", "%d%m%y", "%d-%m-%Y", "%d%m%Y")))
+@click.option("--until", type=click.DateTime(formats=("%d-%m-%y", "%d%m%y", "%d-%m-%Y", "%d%m%Y")))
+@click.option("--debug", is_flag=True)
+def list_preference_test_data(subjects, date, until, debug):
+    import pandas as pd
+
+    from configs.active_config import config
+    from analysis.pipelines.preference_tests_2021 import query_preference_tests
+
+    if debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
+
+    from_day = date.date() if date else None
+    until_day = until.date() if until else from_day
+
+    if not len(subjects):
+        subjects = config.subjects or []
+
+    results = []
+    for subject in subjects:
+        df = query_preference_tests(
+            subject,
+            config,
+            from_date=from_day or None,
+            to_date=until_day or None,
+        )
+
+        if df is not None:
+            print("\n".join(df["Audio"]))
+
+
+preference.add_command(list_preference_test_data)
+cli.add_command(preference)
+
+
 if __name__ == "__main__":
     cli()

@@ -46,22 +46,32 @@ def rt_to_timedelta(rt: str) -> datetime.timedelta:
 #     return df
 
 
-def load_csv(csv_path: str, config, chunksize: int=None) -> pd.DataFrame:
+def load_csv(csv_path: str, config, chunksize: int=None, fast: bool=False) -> pd.DataFrame:
     """Load pyoperant csv file
 
     Use chunksize to only read a small piece of the file
     """
-    df = pd.read_csv(
-        csv_path,
-        header=0,
-        names=config.csv_column_names,
-        parse_dates=True,
-        converters={
-            "RT": rt_to_timedelta,
-            "Time": pd.to_datetime,
-        },
-        chunksize=chunksize
-    )
+    if fast:
+        df = pd.read_csv(
+            csv_path,
+            header=0,
+            names=config.csv_column_names,
+            parse_dates=True,
+            converters={},
+            chunksize=chunksize
+        )
+    else:
+        df = pd.read_csv(
+            csv_path,
+            header=0,
+            names=config.csv_column_names,
+            parse_dates=True,
+            converters={
+                "RT": rt_to_timedelta,
+                "Time": pd.to_datetime,
+            },
+            chunksize=chunksize
+        )
 
     if chunksize:
         return df.get_chunk(chunksize)
