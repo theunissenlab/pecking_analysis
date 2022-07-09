@@ -29,10 +29,10 @@ class BaseConfig:
     }
 
     filters = [
-        {
-            "name": "fix_response_time_column",
-            "kwargs": {}
-        },
+        # {
+        #     "name": "fix_response_time_column",
+        #     "kwargs": {}
+        # },
         {
             "name": "reject_double_pecks",
             "kwargs": {

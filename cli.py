@@ -133,6 +133,7 @@ def missing_trials(debug):
 
     n_trials = 0
     n_missing = 0
+    n_affected = 0
     for subject in config.subjects:
         # Preprocessing steps
         df = load_all_for_subject(subject, config)
@@ -154,11 +155,25 @@ def missing_trials(debug):
             n_trials=subj_n_trials
         ))
 
+        time_diff = np.array([pd.Timedelta(x).total_seconds() for x in np.diff(df["Time"])]).astype(np.float32)
+        rts = np.array([pd.Timedelta(x).total_seconds() for x in df["RT"].iloc[:-1]]).astype(np.float32)
+
+        subj_n_affected = np.sum(
+            (time_diff > 0)
+            & (time_diff - rts > 0.5)
+        )
+
+        print("{n_affected} trials with time difference greater than 0.5s + RT".format(n_affected=subj_n_affected))
+        n_affected += subj_n_affected
+
+        # Count how often RT - rt is > 0.5s
+
     print("-" * 40)
     print("Identified {n_missing} trials missing out of {n_trials}".format(
         n_missing=n_missing,
         n_trials=n_trials
     ))
+    print("{n_affected} trials with time difference greater than 0.5s + RT".format(n_affected=n_affected))
 
     print("Note: run `python cli.py data` and sum the trials column to get the total number of trials after filtering")
 
