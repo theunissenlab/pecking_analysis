@@ -5,6 +5,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime as dt
 
 
 def merge_daily_blocks(blocks, date_range=None):
@@ -149,7 +150,7 @@ class Block(object):
         name = None
         data = pd.DataFrame()
         for blk in blocks:
-            datetime = pd.datetime.combine(blk.date, blk.start)
+            datetime = dt.combine(blk.date, blk.start)
             if earliest is not None:
                 if datetime < earliest:
                     earliest = datetime
@@ -428,7 +429,7 @@ class HDF5Store(object):
         # Add the table entry if it doesn't yet exist
         if (values is None) or (str(group_name) not in values["Path"].values):
             df = pd.DataFrame({"Name": block.name,
-                               "Timestamp": pd.Timestamp(pd.datetime.combine(block.date, block.start)),
+                               "Timestamp": pd.Timestamp(dt.combine(block.date, block.start)),
                                "Path": str(group_name)},
                                index=[0])
             df = df.set_index("Timestamp")

@@ -90,14 +90,16 @@ class PythonCSV(Importer):
                 return datetime.timedelta(**deltadict)
             else:
                 return rt
+            
+        custom_date_parser = lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f')
 
         data = pd.read_csv(csv_file,
                            header=0,
                            names=labels,
-                           parse_dates=True,
                            index_col="Time",
                            converters={"RT": rt_to_timedelta,
-                                       "Time": pd.to_datetime})
+                                       'Time': custom_date_parser})
+        
         data["Time"] = data.index
 
         return data
