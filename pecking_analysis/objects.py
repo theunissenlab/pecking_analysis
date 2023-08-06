@@ -15,7 +15,16 @@ def merge_daily_blocks(blocks, date_range=None):
     if date_range is not None:
         group = []
         for block in blocks:
-            if (date_range[0] <= block.data.index[0].date() <= date_range[1]):
+            date = block.data.index[0].date() 
+            include_flg = False
+            if type(date_range[0]) is tuple :
+                for dates in zip(date_range[0], date_range[1]):
+                    if (dates[0] <= date <= dates[1]):
+                        include_flg = True                
+            else:
+                if (date_range[0] <= date <= date_range[1]):
+                    include_flg = True
+            if (include_flg):
                 group.append(block)
 
         if len(group) == 0:
