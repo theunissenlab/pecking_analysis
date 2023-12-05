@@ -59,7 +59,7 @@ def windows_by_reward(df, versus, rewarded=True, n=4):
     ]
 
 
-def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrewarded"), call_type = None):
+def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrewarded"), call_type = None, minRT = 0):
     file_list = []
 
     if re.search("^[0-9]{6}$", os.path.basename(directory)):
@@ -104,7 +104,7 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
         if not len(block.data):
             continue
         print("Loading {} {}".format(block.date, directory))
-        # block.reject_double_pecks(200)  # don't include trials that start less than 200ms apart
+        block.reject_double_pecks(minRT)  # don't include trials that start less than RT ms apart
         block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
         block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
 
