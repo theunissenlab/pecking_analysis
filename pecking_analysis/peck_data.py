@@ -98,8 +98,15 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
     blocks = PythonCSV.parse(file_list)
     blocks = merge_daily_blocks(blocks, date_range=date_range)
 
+    # Apply filters and fixes
     for block in blocks:
         block.filter_conditions(conditions)
+        if not len(block.data):
+            continue
+        print("Loading {} {}".format(block.date, directory))
+        # block.reject_double_pecks(200)  # don't include trials that start less than 200ms apart
+        block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
+        block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
 
     stim_blocks = []
     for block in blocks:
@@ -117,13 +124,6 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
     stim_blocks = insert_stimulus_history(stim_blocks)
 
     for block, stim_df in zip(blocks, stim_blocks):
-        if not len(block.data):
-            continue
-        print("Loading {} {}".format(block.date, directory))
-        block.reject_double_pecks(200)  # don't include trials that start less than 200ms apart
-        block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
-        block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
-
         # join the finalized block to its stimuli
         new_df = block.data.join(
             stim_df.set_index(["Stim Key"])[["New"]],
