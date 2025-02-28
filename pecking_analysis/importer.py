@@ -130,14 +130,16 @@ class PythonCSV(Importer):
         with open(csv_file) as in_file:
             csv_reader = csv.reader(in_file)
             labels = next(csv_reader)
-        labels = [COL_LABELS.get(l,l.capitalize()) for l in labels]
+        labels = [COL_LABELS.get(l,l.capitalize()) for l in labels]            
+        custom_date_parser = lambda x: datetime.datetime.strptime(x, '%Y-%m-%d %H:%M:%S.%f')
+
         data = pd.read_csv(csv_file,
                            header=0,
                            names=labels,
-                           parse_dates=True,
                            index_col="Time",
                            converters={"RT": rt_to_timedelta,
-                                       "Time": pd.to_datetime})
+                                       'Time': custom_date_parser})
+        
         data["Time"] = data.index
 
         return data

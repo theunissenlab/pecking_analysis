@@ -31,13 +31,36 @@ def rt_to_timedelta(rt: str) -> datetime.timedelta:
             seconds=seconds
         )
 
+#
+# def load_subject_metadata_csv(csv_path: str) -> pd.DataFrame:
+#     df = pd.read_csv(
+#         csv_path,
+#         header=0,
+#         names=config.csv_column_names,
+#         parse_dates=True,
+#         converters={
+#             "Lesion Date": pd.to_datetime,
+#         },
+#     )
+#
+#     return df
 
-def load_csv(csv_path: str, config, chunksize: int=None) -> pd.DataFrame:
+
+def load_csv(csv_path: str, config, chunksize: int=None, fast: bool=False) -> pd.DataFrame:
     """Load pyoperant csv file
 
     Use chunksize to only read a small piece of the file
     """
-    try:
+    if fast:
+        df = pd.read_csv(
+            csv_path,
+            header=0,
+            names=config.csv_column_names,
+            parse_dates=True,
+            converters={},
+            chunksize=chunksize
+        )
+    else:
         df = pd.read_csv(
             csv_path,
             header=0,

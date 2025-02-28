@@ -59,7 +59,7 @@ def windows_by_reward(df, versus, rewarded=True, n=4):
     ]
 
 
-def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrewarded")):
+def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrewarded"), call_type = None, minRT = 0):
     file_list = []
 
     if re.search("^[0-9]{6}$", os.path.basename(directory)):
@@ -71,7 +71,18 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
             file_list.append(csv_file)
     else:
         for date in get_dates(directory):
-            if date_range is None or (date_range[0] <= date <= date_range[1]):
+            include_flg = False
+            if date_range is None :
+                include_flg = True
+            elif type(date_range[0]) is tuple :
+                for dates in zip(date_range[0], date_range[1]):
+                    if (dates[0] <= date <= dates[1]):
+                        include_flg = True                
+            else:
+                if (date_range[0] <= date <= date_range[1]):
+                    include_flg = True
+
+            if (include_flg):
                 date_folder = os.path.join(directory, date.strftime("%d%m%y"))
                 csvs = glob.glob(os.path.join(date_folder, "*.csv"))
 
@@ -80,12 +91,22 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
                         # don't load empty or tiny csv files
                         continue
                     file_list.append(csv_file)
+                    
+    if not file_list:
+        print("No data in", os.path.basename(directory))
 
     blocks = PythonCSV.parse(file_list)
     blocks = merge_daily_blocks(blocks, date_range=date_range)
 
+    # Apply filters and fixes
     for block in blocks:
         block.filter_conditions(conditions)
+        if not len(block.data):
+            continue
+        print("Loading {} {}".format(block.date, directory))
+        block.reject_double_pecks(minRT)  # don't include trials that start less than RT ms apart
+        block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
+        block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
 
     stim_blocks = []
     for block in blocks:
@@ -93,17 +114,16 @@ def load_pecking_days(directory, date_range=None, conditions=("Rewarded", "Unrew
             continue
         block, stims = preprocess_stimuli(block)
         stim_blocks.append(stims)
+        if call_type is not None:
+            block_call_type = np.unique(block.data['Call Type'].loc[block.data['Reward'] == True])
+            if (len(block_call_type) > 1):
+                print('Error: more than one call type as rewarded: ', block_call_type)
+            elif (block_call_type[0] != call_type.upper()):
+                print('Error: requesting %s call tye and found %s call type' % (call_type, block_call_type[0]))
 
     stim_blocks = insert_stimulus_history(stim_blocks)
 
     for block, stim_df in zip(blocks, stim_blocks):
-        if not len(block.data):
-            continue
-        print("Loading {} {}".format(block.date, directory))
-        block.reject_double_pecks(200)  # don't include trials that start less than 200ms apart
-        block.reject_stuck_pecks((6000, 6500))  # if button gets stuck, trials are separated by 6s... reject all these
-        block.data["Trial Number"] = pd.Series(np.arange(len(block.data)))
-
         # join the finalized block to its stimuli
         new_df = block.data.join(
             stim_df.set_index(["Stim Key"])[["New"]],

@@ -9,15 +9,39 @@ logger = logging.getLogger(__name__)
 
 
 def reject_double_pecks(df, rejection_threshold=200):
-    """Remove trials that are interrupted too quickly
+    """Remove trials that are interrupted too quickly and add a column named "Masked Stimulus" indicating the preceding one
 
     When this happens, it makes sense to take the latter trial because the audio
     of the first (interrupted) trial would have been suppressed
+
+    If the underlying cause of this causes double pecks to be registered closer to 100-200ms
+    apart, this will tend to allow the first rendition of the first stim through before
+    quickly switching to the second stim.
+
+    Double pecks seem to not be intentional so we leave them out of the analysis if a second
+    trial happens within 200ms of the first. However, this often allows for a short bit, even a
+    full distance call sometimes, to get through. Since this may affect the subject's response
+    this filter adds a column that annotates trials that occured within 200ms of the start of
+    the previous trial with the preceding stimulus filename.
+
+    This will let us analyze whether that short bit has an effect on the subject's behavior.
 
     :param rejection_threshold: minimum intertrial duration in ms
     """
     if not len(df):
         return df
+
+    bad_trial_index = np.where(
+       np.diff(df["Time"]).astype('timedelta64[ms]') < np.timedelta64(rejection_threshold, "ms")
+    )[0]
+
+    df["Masked Stimulus"] = np.empty(len(df), dtype = np.str)
+    df["Masked Class"] = np.empty(len(df), dtype = np.str)
+
+    for idx in bad_trial_index:
+        # Fill in the masked stim info
+        df.at[df.index[idx + 1], "Masked Stimulus"] = df.iloc[idx]["Stimulus"]
+        df.at[df.index[idx + 1], "Masked Class"] = df.iloc[idx]["Class"]
 
     good_trial_index = np.where(
         np.diff(df["Time"]).astype('timedelta64[ms]') >= np.timedelta64(rejection_threshold, "ms")
@@ -28,6 +52,17 @@ def reject_double_pecks(df, rejection_threshold=200):
         logger.debug("Rejecting {} 'double pecks' out of {}".format(len(df) - len(good_trial_index), len(df)))
 
     return df.iloc[good_trial_index]
+
+
+def fix_response_time_column(df):
+    """
+    """
+    df = df.copy()
+    for idx in range(len(df) - 1):
+        if df.iloc[idx]["Response"]:
+            dt = (df.iloc[idx + 1]["Time"] - df.iloc[idx]["Time"])
+            df.at[df.index[idx], "RT"] = dt
+    return df
 
 
 def reject_stuck_pecks(df, iti=(6000, 6050), in_a_row=3):

@@ -6,6 +6,7 @@ import os
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
+from datetime import datetime as dt
 
 
 def merge_daily_blocks(blocks, date_range=None):
@@ -15,7 +16,16 @@ def merge_daily_blocks(blocks, date_range=None):
     if date_range is not None:
         group = []
         for block in blocks:
-            if (date_range[0] <= block.data.index[0].date() <= date_range[1]):
+            date = block.data.index[0].date() 
+            include_flg = False
+            if type(date_range[0]) is tuple :
+                for dates in zip(date_range[0], date_range[1]):
+                    if (dates[0] <= date <= dates[1]):
+                        include_flg = True                
+            else:
+                if (date_range[0] <= date <= date_range[1]):
+                    include_flg = True
+            if (include_flg):
                 group.append(block)
 
         if len(group) == 0:
@@ -150,7 +160,7 @@ class Block(object):
         name = None
         data = pd.DataFrame()
         for blk in blocks:
-            datetime = pd.Timestamp.combine(blk.date, blk.start)
+            datetime = dt.combine(blk.date, blk.start)
             if earliest is not None:
                 if datetime < earliest:
                     earliest = datetime
@@ -429,7 +439,7 @@ class HDF5Store(object):
         # Add the table entry if it doesn't yet exist
         if (values is None) or (str(group_name) not in values["Path"].values):
             df = pd.DataFrame({"Name": block.name,
-                               "Timestamp": pd.Timestamp.combine(block.date, block.start),
+                               "Timestamp": pd.Timestamp(dt.combine(block.date, block.start)),
                                "Path": str(group_name)},
                                index=[0])
             df = df.set_index("Timestamp")

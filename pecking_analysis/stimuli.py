@@ -20,11 +20,12 @@ def parse_filename(filename):
         if section.upper() in ["SO", "SONG"]:
             call_type = "SO"
             break
-        elif section.upper() in ["TE", "BE", "NE", "DC", "AG", "LT", "TH"]:
+        elif section.upper() in ["TE", "BE", "NE", "DC", "AG", "LT", "TH", "TU", "WH", "DI"]:
             call_type = section.upper()
             break
     else:
         call_type = "unknown"
+        
 
     for i, section in enumerate(sections):
         if re.search("[a-zA-Z]{6}[a-zA-Z0-9]{4}", section):
@@ -42,6 +43,9 @@ def parse_filename(filename):
             rendition = "0"
         else:
             rendition = sections[2]
+       
+    if (call_type == "unknown"):
+        print('Warning: Unknown call type in stim file %s', filename)
         
     return {
         "call_type": call_type,
@@ -150,7 +154,7 @@ def insert_stimulus_history(stimulus_blocks):
         for i, row in stims.iterrows():
             times_seen.append(overall_stims[row["Stim Key"]])
             consecutive_seen.append(consec_stims[row["Stim Key"]])
-            filename_info = parse_filename(row["Stim Key"])
+            # filename_info = parse_filename(row["Stim Key"])
 
         stims["Overall Seen Before"] = pd.Series(times_seen, index=stims.index)
         stims["Consecutive"] = pd.Series(consecutive_seen, index=stims.index)
