@@ -2,6 +2,7 @@
 import datetime
 import os
 import re
+import csv
 import numpy as np
 import pandas as pd
 from pecking_analysis import objects
@@ -10,6 +11,18 @@ BIRDS = {"BlaBlu1387F": "BlaLbu1387F",
          "GraGre1401M": "GraGre4401M",
          "BlaYel0208": "BlaYel0208M",
          "WhiXXX4100F": "WhiRas4100F"}
+
+# normally when importing headers we will capitalize the words
+# If the conversion is more than a capitalization, include them in this
+# dictionary
+COL_LABELS = {
+    "index": "Trial",
+    "stimulus_name": "Stimulus",
+    "condition_name": "Class",
+    "rt": "RT",
+    "max_wait": "Max Wait",
+    "delay_period_pecks": "Delay Pecks"
+}
 
 class Importer(object):
 
@@ -33,10 +46,21 @@ class Importer(object):
 
 class PythonCSV(Importer):
 
-    pattern = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[0-9]{2}){1,2}[MF]?)",
+    # pattern = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[0-9]{2}){1,2}[MF]?)",
+    #                     "trialdata",
+    #                     "(?P<datestr>[0-9]*)\.csv"])
+
+    # We gave a single banded subject the name XXXBluXX31M instead of Blu31M.
+    # Need to allow for X in replacement of numbers in second half of name
+    pattern = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[X0-9]{2}){1,2}[MF]?)",
                         "trialdata",
                         "(?P<datestr>[0-9]*)\.csv"])
-
+    pattern2 = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[X0-9]{2}){1,2}[MF]?)",
+                        "(?P<datestr>[0-9]*)",
+                        "trialdata.csv"])
+    pattern3 = "_".join(["(?P<name>(?:[A-Za-z]{3}){1,2}(?:[X0-9]{3}){1,2}[MF]?)",
+                        "(?P<datestr>[0-9]*)",
+                        "trialdata.csv"])
     @classmethod
     def parse(cls, files):
 
@@ -71,12 +95,25 @@ class PythonCSV(Importer):
                 m["datestr"] = "Unknown"
 
             return m
+        m = re.match(cls.pattern2, fname, re.IGNORECASE)
+        if m is not None:
+            m = m.groupdict()
+            if m["name"] is None:
+                m["name"] = "Unknown"
+            if m["datestr"] is None:
+                m["datestr"] = "Unknown"
+            return m
 
+        m = re.match(cls.pattern3, fname, re.IGNORECASE)
+        if m is not None:
+            m = m.groupdict()
+            if m["name"] is None:
+                m["name"] = "Unknown"
+            if m["datestr"] is None:
+                m["datestr"] = "Unknown"
+            return m
     @classmethod
     def get_block_data(cls, csv_file):
-
-        labels = ["Session", "Trial", "Time", "Stimulus", "Class",
-                  "Response", "Correct", "RT", "Reward", "Max Wait"]
 
         def rt_to_timedelta(rt):
 
@@ -90,7 +127,10 @@ class PythonCSV(Importer):
                 return datetime.timedelta(**deltadict)
             else:
                 return rt
-
+        with open(csv_file) as in_file:
+            csv_reader = csv.reader(in_file)
+            labels = next(csv_reader)
+        labels = [COL_LABELS.get(l,l.capitalize()) for l in labels]
         data = pd.read_csv(csv_file,
                            header=0,
                            names=labels,
@@ -266,5 +306,3 @@ if __name__ == "__main__":
     blocks = PythonCSV.parse(args.csv_files)
     for blk in blocks:
         blk.save(os.path.abspath(os.path.expanduser(args.output_file[0])))
-
-

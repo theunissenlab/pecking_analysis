@@ -20,6 +20,10 @@ from analysis.analysis import create_informative_trials_column
 logger = logging.getLogger(__name__)
 
 
+class NoDataForSubject(Exception):
+    pass
+
+
 def get_test_context(full_stim_path: str) -> str:
     """Return the 'test' the stim is from using the directory structure
 
@@ -143,12 +147,17 @@ def apply_column_names(df: pd.DataFrame, column_map: Dict[str, Tuple[str, Callab
 def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
     """Loads all dataframes for a subject, filters the trials, and orders them by time
     """
-    raw_files = glob.glob(os.path.join(config.save_dir, subject, "raw", "*.csv"))
+    raw_files = glob.glob(os.path.join(config.save_dir, subject, "*", "*.csv"))
     dfs = []
 
     for csv in raw_files:
         # Read a preview of the file to get timestamp
-        preview_df = load_csv(csv, config, chunksize=1)
+        try:
+            preview_df = load_csv(csv, config, chunksize=1)
+        except IOError as e:
+            logger.warning(e)
+            continue
+            
         if not len(preview_df):
             continue
         if from_date is not None and preview_df.iloc[0]["Time"].date() < from_date:
@@ -164,6 +173,11 @@ def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=No
         df = filter_trials(df, filter_dicts=config.filters)
         dfs.append(df)
 
+    if not len(dfs):
+        raise NoDataForSubject("No data in the date range {} to {} found for subject {} in {}".format(
+            from_date, to_date, subject, config.save_dir
+        ))
+
     df = pd.concat(dfs, axis=0).sort_values("Time").reset_index()
     df["Subject"] = subject
 
@@ -171,15 +185,31 @@ def load_all_for_subject(subject: str, config: dict, from_date: datetime.date=No
     return df
 
 
-def run_pipeline_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None):
+def run_pipeline_subject(subject: str, config: dict, from_date: datetime.date=None, to_date: datetime.date=None, include_shaping: bool=False):
     logger.debug("Running data pipeline for {}".format(subject))
     df = load_all_for_subject(subject, config, from_date, to_date)
 
     # Here we have a specific step to correct the data from Jan 23
     df = add_stimulus_columns(df)
-    _, _, df = split_shaping_preference_test(df)
+    
+    shaping_df, _, df = split_shaping_preference_test(df)
+
+    if not include_shaping and not len(df):
+        raise Exception("No non-shaping data from {} to {}".format(
+            from_date,
+            to_date,
+        ))
+    elif include_shaping and not len(df) and not len(shaping_df):
+        raise Exception("No data from {} to {}".format(
+            from_date,
+            to_date,
+        ))
+    elif include_shaping and not len(df):
+        df = shaping_df
+
     stims_df = extract_stim_df(df)
     df = apply_column_names(df, config.column_mapping)
+
     # df = create_informative_trials_column(df, as_column="Informative Trials Seen")
     # logger.info("Calculated Informative Trials Columns")
 

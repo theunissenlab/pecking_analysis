@@ -37,20 +37,23 @@ def load_csv(csv_path: str, config, chunksize: int=None) -> pd.DataFrame:
 
     Use chunksize to only read a small piece of the file
     """
-    df = pd.read_csv(
-        csv_path,
-        header=0,
-        names=config.csv_column_names,
-        parse_dates=True,
-        converters={
-            "RT": rt_to_timedelta,
-            "Time": pd.to_datetime,
-        },
-        chunksize=chunksize
-    )
+    try:
+        df = pd.read_csv(
+            csv_path,
+            header=0,
+            names=config.csv_column_names,
+            parse_dates=True,
+            converters={
+                "RT": rt_to_timedelta,
+                "Time": pd.to_datetime,
+            },
+            chunksize=chunksize
+        )
 
-    if chunksize:
-        return df.get_chunk(chunksize)
+        if chunksize:
+            return df.get_chunk(chunksize)
+    except:
+        raise IOError("Could not read csv {} using config. Perhaps the column names have changed?".format(csv_path))
 
     return df
 

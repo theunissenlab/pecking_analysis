@@ -53,7 +53,7 @@ def summarize_data(df: pd.DataFrame):
             nonrewarded_trials,
             rewarded_trials,
             "Interrupt",
-            side="greater"
+            side="two.sided"
         )
 
         results = {}

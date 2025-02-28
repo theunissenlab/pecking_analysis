@@ -1,4 +1,5 @@
 from __future__ import division, print_function
+import datetime
 from itertools import product, groupby
 import h5py
 import os
@@ -149,7 +150,7 @@ class Block(object):
         name = None
         data = pd.DataFrame()
         for blk in blocks:
-            datetime = pd.datetime.combine(blk.date, blk.start)
+            datetime = pd.Timestamp.combine(blk.date, blk.start)
             if earliest is not None:
                 if datetime < earliest:
                     earliest = datetime
@@ -428,7 +429,7 @@ class HDF5Store(object):
         # Add the table entry if it doesn't yet exist
         if (values is None) or (str(group_name) not in values["Path"].values):
             df = pd.DataFrame({"Name": block.name,
-                               "Timestamp": pd.Timestamp(pd.datetime.combine(block.date, block.start)),
+                               "Timestamp": pd.Timestamp.combine(block.date, block.start),
                                "Path": str(group_name)},
                                index=[0])
             df = df.set_index("Timestamp")
@@ -452,8 +453,8 @@ class HDF5Store(object):
             g = hf.get(path)
             annotations = dict(g.attrs.items())
             name = annotations.pop("name")
-            date = pd.datetime.strptime(annotations.pop("date"), "%d%m%Y").date()
-            start = pd.datetime.strptime(annotations.pop("start"), "%H%M%S").time()
+            date = datetime.strptime(annotations.pop("date"), "%d%m%Y").date()
+            start = datetime.strptime(annotations.pop("start"), "%H%M%S").time()
 
             for key, val in annotations.items():
                 annotations[key] = or_none(val)

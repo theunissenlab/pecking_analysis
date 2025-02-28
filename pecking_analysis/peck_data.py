@@ -127,7 +127,7 @@ def get_labels_by_combining_columns(block, columns, combiner=None):
 class color_by_reward(object):
     @staticmethod
     def get(x):
-        if "Rewarded" in x:
+        if "Rewarded" in x or "No-Go" in x or " Match" in x:
             return "#0AA5D8" # "#0094FA"
         else:
             return "#C62533" # "#D800DF"
